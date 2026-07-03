@@ -9,30 +9,52 @@ export default function CustomerAppointmentsPage() {
   const [pets, setPets] = useState<any[]>([]);
   const [form, setForm] = useState({ petId: '', date: '', doctorId: '' });
   const [message, setMessage] = useState('');
+  const [isErrorMessage, setIsErrorMessage] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     void loadData();
   }, []);
 
   async function loadData() {
+    setLoading(true);
     const [appointmentResult, lookupResult] = await Promise.all([listAppointments(), listAppointmentLookups()]);
     if (appointmentResult.success) setAppointments(appointmentResult.appointments as any[]);
     if (lookupResult.success) setPets(lookupResult.pets as any[]);
+    setLoading(false);
   }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+    setSubmitting(true);
+    setMessage('');
+    setIsErrorMessage(false);
+
+    if (!form.petId || !form.date) {
+      setMessage('Pilih hewan dan tanggal terlebih dahulu.');
+      setIsErrorMessage(true);
+      setSubmitting(false);
+      return;
+    }
+
     const result = await createAppointment({ petId: form.petId, customerId: '', doctorId: form.doctorId || undefined, date: form.date, queueNumber: undefined, status: 'WAITING', requestedByCustomer: true });
+    setSubmitting(false);
+
     if (result.success) {
       setMessage('Permintaan appointment berhasil dikirim.');
+      setIsErrorMessage(false);
       setForm({ petId: '', date: '', doctorId: '' });
       await loadData();
       return;
     }
     setMessage(result.message ?? 'Gagal mengajukan appointment.');
+    setIsErrorMessage(true);
   }
 
   async function handleCancel(id: string) {
+    setMessage('');
+    setIsErrorMessage(false);
     const result = await cancelAppointment({ id });
     if (result.success) {
       setMessage('Appointment dibatalkan.');
@@ -40,6 +62,7 @@ export default function CustomerAppointmentsPage() {
       return;
     }
     setMessage(result.message ?? 'Gagal membatalkan appointment.');
+    setIsErrorMessage(true);
   }
 
   return (
@@ -49,7 +72,7 @@ export default function CustomerAppointmentsPage() {
         <h1 className="text-xl font-semibold text-zinc-900">Appointment Anda</h1>
       </div>
 
-      {message ? <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">{message}</div> : null}
+      {message ? <div className={`rounded-lg border p-3 text-sm ${isErrorMessage ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>{message}</div> : null}
 
       <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="flex items-center gap-2 text-zinc-900">
@@ -67,11 +90,13 @@ export default function CustomerAppointmentsPage() {
           Tanggal & waktu
           <input type="datetime-local" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
         </label>
-        <button type="submit" className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Kirim permintaan</button>
+        <button type="submit" disabled={submitting} className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">{submitting ? 'Mengirim...' : 'Kirim permintaan'}</button>
       </form>
 
       <div className="space-y-3">
-        {appointments.length === 0 ? <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">Belum ada appointment.</div> : appointments.map((appointment) => (
+        {loading ? <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">Memuat appointment...</div> : null}
+        {!loading && appointments.length === 0 ? <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-500">Belum ada appointment.</div> : null}
+        {!loading && appointments.map((appointment) => (
           <div key={appointment.id} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>

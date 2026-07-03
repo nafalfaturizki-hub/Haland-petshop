@@ -52,6 +52,19 @@ async function buildUsername(name: string) {
   return username;
 }
 
+async function findCustomerByPhone(phone: string, excludeId?: string) {
+  if (!phone) {
+    return null;
+  }
+
+  return prisma.customer.findFirst({
+    where: {
+      phone,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+  });
+}
+
 export async function listCustomers() {
   const session = await auth();
   const actorRole = getActorRole(session);
@@ -118,6 +131,13 @@ export async function createCustomer(input: z.infer<typeof customerSchema>) {
     return { success: false, message: permission.message };
   }
 
+  if (parsed.data.phone) {
+    const duplicate = await findCustomerByPhone(parsed.data.phone);
+    if (duplicate) {
+      return { success: false, message: 'Nomor telepon sudah dipakai pelanggan lain.' };
+    }
+  }
+
   let createdUserId: string | null = null;
   let temporaryPin: string | undefined;
 
@@ -148,7 +168,8 @@ export async function createCustomer(input: z.infer<typeof customerSchema>) {
     },
   });
 
-  revalidatePath('/dashboard/customers');
+  revalidatePath('/customers');
+  revalidatePath('/customers/[id]');
   return { success: true, customer, temporaryPin };
 }
 
@@ -171,6 +192,13 @@ export async function updateCustomer(input: z.infer<typeof updateCustomerSchema>
     return { success: false, message: 'Data pelanggan tidak ditemukan.' };
   }
 
+  if (parsed.data.phone) {
+    const duplicate = await findCustomerByPhone(parsed.data.phone, parsed.data.id);
+    if (duplicate) {
+      return { success: false, message: 'Nomor telepon sudah dipakai pelanggan lain.' };
+    }
+  }
+
   const customer = await prisma.customer.update({
     where: { id: parsed.data.id },
     data: {
@@ -181,7 +209,8 @@ export async function updateCustomer(input: z.infer<typeof updateCustomerSchema>
     },
   });
 
-  revalidatePath('/dashboard/customers');
+  revalidatePath('/customers');
+  revalidatePath('/customers/[id]');
   return { success: true, customer };
 }
 
@@ -199,12 +228,18 @@ export async function deleteCustomer(input: z.infer<typeof deleteCustomerSchema>
     return { success: false, message: permission.message };
   }
 
-  const petCount = await prisma.pet.count({ where: { customerId: parsed.data.id } });
-  if (petCount > 0) {
-    return { success: false, message: 'Pelanggan ini masih punya data hewan, hapus dulu data hewan terlebih dahulu.' };
+  const [petCount, appointmentCount, invoiceCount] = await Promise.all([
+    prisma.pet.count({ where: { customerId: parsed.data.id } }),
+    prisma.appointment.count({ where: { customerId: parsed.data.id } }),
+    prisma.invoice.count({ where: { customerId: parsed.data.id } }),
+  ]);
+
+  if (petCount > 0 || appointmentCount > 0 || invoiceCount > 0) {
+    return { success: false, message: 'Pelanggan ini masih memiliki data terkait (hewan, janji temu, atau invoice). Hapus data terkait terlebih dahulu.' };
   }
 
   await prisma.customer.delete({ where: { id: parsed.data.id } });
-  revalidatePath('/dashboard/customers');
+  revalidatePath('/customers');
+  revalidatePath('/customers/[id]');
   return { success: true };
 }

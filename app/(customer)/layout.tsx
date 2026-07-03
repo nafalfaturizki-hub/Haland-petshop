@@ -1,7 +1,21 @@
+import { redirect } from 'next/navigation';
+import { auth } from '@/lib/auth';
 import { PortalNav } from '@/components/layout/portal-nav';
 import { Navbar } from '@/components/layout/navbar';
+import { isCustomerRole } from '@/lib/permissions';
 
-export default function CustomerLayout({ children }: { children: React.ReactNode }) {
+export default async function CustomerLayout({ children }: { children: React.ReactNode }) {
+  const session = await auth();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+
+  if (!session?.user?.id) {
+    redirect('/login');
+  }
+
+  if (!isCustomerRole(role as any)) {
+    redirect('/dashboard');
+  }
+
   return (
     <div className="min-h-screen bg-[#fafafa] text-zinc-900">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col">

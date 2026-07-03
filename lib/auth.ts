@@ -1,18 +1,33 @@
 import { getServerSession } from 'next-auth/next';
+import type { DefaultSession, NextAuthOptions, Session } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from './db';
+
+declare module 'next-auth' {
+  interface Session {
+    user: DefaultSession['user'] & {
+      id?: string;
+      role?: string;
+      mustChangePin?: boolean;
+    };
+  }
+}
 
 const loginSchema = z.object({
   username: z.string().trim().min(1),
   pin: z.string().trim().min(1),
 });
 
-export const authOptions: any = {
-  secret: process.env.NEXTAUTH_SECRET,
+export const authOptions: NextAuthOptions = {
+  secret: process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET ?? 'change-me-in-production',
   session: {
     strategy: 'jwt',
+    maxAge: 60 * 60 * 24 * 30,
+  },
+  jwt: {
+    maxAge: 60 * 60 * 24 * 30,
   },
   providers: [
     Credentials({
@@ -25,31 +40,24 @@ export const authOptions: any = {
         try {
           const parsed = loginSchema.safeParse(credentials);
           if (!parsed.success) {
-            console.error('[authorize] Validasi schema gagal:', parsed.error);
             return null;
           }
 
-          console.log('[authorize] credentials diterima untuk username:', parsed.data.username);
-
           const user = await prisma.user.findUnique({ where: { username: parsed.data.username } });
           if (!user) {
-            console.error('[authorize] User tidak ditemukan:', parsed.data.username);
             return null;
           }
 
           if (!user.isActive) {
-            console.error('[authorize] User tidak aktif:', parsed.data.username, { isActive: user.isActive });
             return null;
           }
 
           const now = new Date();
           if (user.isLocked) {
             if (user.lockedUntil && user.lockedUntil > now) {
-              console.error('[authorize] User dikunci saat ini:', parsed.data.username, { lockedUntil: user.lockedUntil.toISOString(), failedPinAttempts: user.failedPinAttempts });
               return null;
             }
 
-            console.log('[authorize] User dikunci tetapi lock expired, akan dibuka kembali:', parsed.data.username);
             await prisma.user.update({
               where: { id: user.id },
               data: {
@@ -63,14 +71,11 @@ export const authOptions: any = {
           let isValidPin = false;
           try {
             isValidPin = await bcrypt.compare(parsed.data.pin, user.pinHash);
-            console.log('[authorize] bcrypt.compare hasil:', isValidPin, { username: parsed.data.username, pinHashLength: user.pinHash?.length });
-          } catch (error: any) {
-            console.error('[authorize] bcrypt.compare failed:', error?.message ?? error, { username: parsed.data.username, pinHashLength: user.pinHash?.length });
+          } catch {
             return null;
           }
 
           if (!isValidPin) {
-            console.error('[authorize] PIN tidak valid untuk user:', parsed.data.username);
             const nextAttempts = (user.failedPinAttempts ?? 0) + 1;
             const shouldLock = nextAttempts >= 5;
 
@@ -95,7 +100,6 @@ export const authOptions: any = {
           },
         });
 
-        console.log('[authorize] Login berhasil untuk user:', parsed.data.username, 'dengan role:', user.role);
         return {
           id: user.id,
           name: user.name,
@@ -103,8 +107,7 @@ export const authOptions: any = {
           role: user.role,
           mustChangePin: user.mustChangePin,
         };
-        } catch (error) {
-          console.error('[authorize] Error tidak terduga:', error);
+        } catch {
           return null;
         }
       },
@@ -133,5 +136,5 @@ export const authOptions: any = {
   },
 };
 
-export const auth = () => getServerSession(authOptions) as Promise<any>;
+export const auth = () => getServerSession(authOptions) as Promise<Session | null>;
 

@@ -34,6 +34,7 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
+  const [isErrorMessage, setIsErrorMessage] = useState(false);
   const [temporaryPin, setTemporaryPin] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -48,19 +49,35 @@ export default function CustomersPage() {
 
   async function loadCustomers() {
     setLoading(true);
+    setMessage('');
+    setIsErrorMessage(false);
     const result = await listCustomers();
-    if (result.success) setCustomers(result.customers as CustomerRow[]);
+
+    if (result.success) {
+      setCustomers(result.customers as CustomerRow[]);
+    } else {
+      setCustomers([]);
+      setMessage(result.message ?? 'Gagal memuat data pelanggan.');
+      setIsErrorMessage(true);
+    }
+
     setLoading(false);
   }
 
   function openCreate() {
     setEditingId(null);
     setForm(emptyForm);
+    setMessage('');
+    setIsErrorMessage(false);
+    setTemporaryPin(null);
     setShowForm(true);
   }
 
   function openEdit(customer: CustomerRow) {
     setEditingId(customer.id);
+    setMessage('');
+    setIsErrorMessage(false);
+    setTemporaryPin(null);
     setForm({
       name: customer.name,
       phone: customer.phone ?? '',
@@ -76,14 +93,33 @@ export default function CustomersPage() {
     event.preventDefault();
     setSaving(true);
     setTemporaryPin(null);
+    setMessage('');
+    setIsErrorMessage(false);
+
+    const trimmedName = form.name.trim();
+    const trimmedUsername = form.username.trim();
+
+    if (!trimmedName) {
+      setMessage('Nama pelanggan wajib diisi.');
+      setIsErrorMessage(true);
+      setSaving(false);
+      return;
+    }
+
+    if (form.createLogin && !trimmedUsername) {
+      setMessage('Username wajib diisi saat membuat akun login.');
+      setIsErrorMessage(true);
+      setSaving(false);
+      return;
+    }
 
     const payload = {
-      name: form.name,
-      phone: form.phone,
-      address: form.address,
-      notes: form.notes,
+      name: trimmedName,
+      phone: form.phone.trim(),
+      address: form.address.trim(),
+      notes: form.notes.trim(),
       createLogin: form.createLogin,
-      username: form.createLogin && form.username ? form.username : undefined,
+      username: form.createLogin && trimmedUsername ? trimmedUsername : undefined,
     };
 
     const result = editingId
@@ -94,6 +130,8 @@ export default function CustomersPage() {
 
     if (!result.success) {
       setMessage(result.message ?? 'Gagal menyimpan pelanggan.');
+      setIsErrorMessage(true);
+      setSaving(false);
       return;
     }
 
@@ -102,6 +140,7 @@ export default function CustomersPage() {
     }
 
     setMessage(editingId ? 'Data pelanggan diperbarui.' : 'Pelanggan ditambahkan.');
+    setIsErrorMessage(false);
     setShowForm(false);
     await loadCustomers();
   }
@@ -110,10 +149,12 @@ export default function CustomersPage() {
     const result = await deleteCustomer({ id });
     if (result.success) {
       setMessage('Pelanggan dihapus.');
+      setIsErrorMessage(false);
       await loadCustomers();
       return;
     }
     setMessage(result.message ?? 'Gagal menghapus pelanggan.');
+    setIsErrorMessage(true);
   }
 
   const columns: Array<{ key: keyof CustomerRow; header: string; render?: (row: CustomerRow) => ReactNode }> = [
@@ -168,7 +209,7 @@ export default function CustomersPage() {
         </button>
       </div>
 
-      {message ? <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">{message}</div> : null}
+      {message ? <div className={`rounded-lg border p-3 text-sm ${isErrorMessage ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>{message}</div> : null}
       {temporaryPin ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           PIN awal akun pelanggan: <span className="font-mono font-semibold">{temporaryPin}</span> — catat sekarang, hanya ditampilkan sekali.

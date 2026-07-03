@@ -30,7 +30,9 @@ export default function AppointmentsPage() {
   const [customers, setCustomers] = useState<LookupOption[]>([]);
   const [doctors, setDoctors] = useState<LookupOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [isErrorMessage, setIsErrorMessage] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ petId: '', customerId: '', doctorId: '', date: '', queueNumber: '', status: 'WAITING' as 'WAITING' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED' });
 
@@ -40,6 +42,8 @@ export default function AppointmentsPage() {
 
   async function loadData() {
     setLoading(true);
+    setMessage('');
+    setIsErrorMessage(false);
     const [appointmentResult, lookupResult] = await Promise.all([listAppointments(), listAppointmentLookups()]);
     if (appointmentResult.success) {
       const normalizedAppointments = (appointmentResult.appointments ?? []).map((appointment: any) => ({
@@ -75,6 +79,17 @@ export default function AppointmentsPage() {
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
+    setSaving(true);
+    setMessage('');
+    setIsErrorMessage(false);
+
+    if (!form.petId || !form.customerId || !form.date) {
+      setMessage('Pilih hewan, pelanggan, dan tanggal terlebih dahulu.');
+      setIsErrorMessage(true);
+      setSaving(false);
+      return;
+    }
+
     const payload = {
       id: editingId ?? undefined,
       petId: form.petId,
@@ -87,17 +102,23 @@ export default function AppointmentsPage() {
     } as any;
 
     const result = editingId ? await updateAppointment(payload) : await createAppointment(payload);
+    setSaving(false);
+
     if (result.success) {
       setMessage(editingId ? 'Jadwal diperbarui.' : 'Jadwal ditambahkan.');
+      setIsErrorMessage(false);
       resetForm();
       await loadData();
       return;
     }
 
     setMessage(result.message ?? 'Gagal menyimpan jadwal.');
+    setIsErrorMessage(true);
   }
 
   async function handleStatus(id: string, status: 'IN_PROGRESS' | 'DONE' | 'CANCELLED') {
+    setMessage('');
+    setIsErrorMessage(false);
     const result = await updateAppointment({ id, status });
     if (result.success) {
       setMessage('Status diperbarui.');
@@ -105,9 +126,12 @@ export default function AppointmentsPage() {
       return;
     }
     setMessage(result.message ?? 'Gagal memperbarui status.');
+    setIsErrorMessage(true);
   }
 
   async function handleCancel(id: string) {
+    setMessage('');
+    setIsErrorMessage(false);
     const result = await cancelAppointment({ id });
     if (result.success) {
       setMessage('Jadwal dibatalkan.');
@@ -115,6 +139,7 @@ export default function AppointmentsPage() {
       return;
     }
     setMessage(result.message ?? 'Gagal membatalkan jadwal.');
+    setIsErrorMessage(true);
   }
 
   const columns: Array<{ key: keyof AppointmentRow; header: string; render?: (row: AppointmentRow) => ReactNode }> = [
@@ -133,7 +158,7 @@ export default function AppointmentsPage() {
         <h1 className="text-xl font-semibold text-zinc-900">Kelola jadwal pemeriksaan</h1>
       </div>
 
-      {message ? <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-700">{message}</div> : null}
+      {message ? <div className={`rounded-lg border p-3 text-sm ${isErrorMessage ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>{message}</div> : null}
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
@@ -191,7 +216,7 @@ export default function AppointmentsPage() {
           </label>
 
           <div className="flex flex-wrap gap-2">
-            <button type="submit" className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">{editingId ? 'Simpan perubahan' : 'Tambah jadwal'}</button>
+            <button type="submit" disabled={saving} className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">{saving ? 'Menyimpan...' : editingId ? 'Simpan perubahan' : 'Tambah jadwal'}</button>
             {editingId ? <button type="button" onClick={resetForm} className="rounded-lg border border-zinc-200 px-4 py-2 text-sm text-zinc-700">Batal</button> : null}
           </div>
         </form>

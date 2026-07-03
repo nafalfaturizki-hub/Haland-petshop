@@ -1,10 +1,20 @@
+import { redirect } from 'next/navigation';
 import { auth } from '@/lib/auth';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Navbar } from '@/components/layout/navbar';
+import { isStaffRole } from '@/lib/permissions';
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  const role = (session?.user as { role?: string } | undefined)?.role || 'GUEST';
+  const role = (session?.user as { role?: string } | undefined)?.role;
+
+  if (!session?.user?.id) {
+    redirect('/login');
+  }
+
+  if (!isStaffRole(role as any)) {
+    redirect('/portal');
+  }
 
   return (
     <div className="min-h-screen bg-white text-zinc-900">

@@ -3,6 +3,8 @@
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
+const STAFF_ROLES = ['OWNER', 'ADMIN_KLINIK', 'DOKTER'];
+
 function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
   return (session?.user as { role?: string } | undefined)?.role;
 }
@@ -24,7 +26,7 @@ export async function getReportSummary() {
     return { success: false, message: 'Tidak terautentikasi.', data: null };
   }
 
-  if (!['OWNER', 'ADMIN_KLINIK', 'DOKTER'].includes(actorRole ?? '')) {
+  if (!STAFF_ROLES.includes(actorRole ?? '')) {
     return { success: false, message: 'Anda tidak berwenang melihat laporan.', data: null };
   }
 
@@ -33,20 +35,20 @@ export async function getReportSummary() {
   const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
 
   if (isDoctor(actorRole)) {
-    const myAppointmentsToday = await prisma.appointment.count({
-      where: { doctorId: actorId, date: { gte: start, lt: end }, status: { not: 'CANCELLED' } },
-    });
-
-    const waitingAppointments = await prisma.appointment.count({
-      where: { doctorId: actorId, status: 'WAITING' },
-    });
-
-    const medicalRecordsThisMonth = await prisma.medicalRecord.count({
-      where: {
-        doctorId: actorId,
-        date: { gte: new Date(today.getFullYear(), today.getMonth(), 1), lt: new Date(today.getFullYear(), today.getMonth() + 1, 1) },
-      },
-    });
+    const [myAppointmentsToday, waitingAppointments, medicalRecordsThisMonth] = await Promise.all([
+      prisma.appointment.count({
+        where: { doctorId: actorId, date: { gte: start, lt: end }, status: { not: 'CANCELLED' } },
+      }),
+      prisma.appointment.count({
+        where: { doctorId: actorId, status: 'WAITING' },
+      }),
+      prisma.medicalRecord.count({
+        where: {
+          doctorId: actorId,
+          date: { gte: new Date(today.getFullYear(), today.getMonth(), 1), lt: new Date(today.getFullYear(), today.getMonth() + 1, 1) },
+        },
+      }),
+    ]);
 
     return {
       success: true,
@@ -62,20 +64,23 @@ export async function getReportSummary() {
     };
   }
 
-  const totalCustomers = await prisma.customer.count();
-  const totalPets = await prisma.pet.count();
-  const appointmentsToday = await prisma.appointment.count({
-    where: { date: { gte: start, lt: end }, status: { not: 'CANCELLED' } },
-  });
-  const occupiedRooms = await prisma.petHotelBooking.count({ where: { status: 'CHECKED_IN' } });
-  const allProducts = await prisma.product.findMany({ select: { stock: true, minStock: true } });
+  const [totalCustomers, totalPets, appointmentsToday, occupiedRooms, allProducts, unpaidInvoices, revenueToday, salesToday] = await Promise.all([
+    prisma.customer.count(),
+    prisma.pet.count(),
+    prisma.appointment.count({
+      where: { date: { gte: start, lt: end }, status: { not: 'CANCELLED' } },
+    }),
+    prisma.petHotelBooking.count({ where: { status: 'CHECKED_IN' } }),
+    prisma.product.findMany({ select: { stock: true, minStock: true } }),
+    prisma.invoice.count({ where: { status: 'UNPAID' } }),
+    prisma.invoice.aggregate({
+      _sum: { totalAmount: true },
+      where: { date: { gte: start, lt: end }, status: 'PAID' },
+    }),
+    prisma.invoice.count({ where: { date: { gte: start, lt: end }, status: 'PAID' } }),
+  ]);
+
   const lowStockCount = allProducts.filter((product) => product.stock < product.minStock).length;
-  const unpaidInvoices = await prisma.invoice.count({ where: { status: 'UNPAID' } });
-  const revenueToday = await prisma.invoice.aggregate({
-    _sum: { totalAmount: true },
-    where: { date: { gte: start, lt: end }, status: 'PAID' },
-  });
-  const salesToday = await prisma.invoice.count({ where: { date: { gte: start, lt: end }, status: 'PAID' } });
 
   return {
     success: true,

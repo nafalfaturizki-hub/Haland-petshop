@@ -1,12 +1,78 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getToken } from 'next-auth/jwt';
+
+const STAFF_PREFIXES = [
+  '/dashboard',
+  '/customers',
+  '/pets',
+  '/appointments',
+  '/medical-records',
+  '/pet-hotel',
+  '/petshop',
+  '/pos',
+  '/billing',
+  '/reports',
+  '/users',
+  '/settings',
+  '/profile',
+];
+
+const CUSTOMER_PREFIXES = ['/portal'];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-
-  // Public routes yang tidak memerlukan authentication
   const publicRoutes = ['/login', '/api/auth', '/_next', '/favicon.ico'];
-  
+
   if (publicRoutes.some((route) => pathname.startsWith(route))) {
+    return NextResponse.next();
+  }
+
+  const token = await getToken({
+    req: request,
+    secret: process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET,
+  });
+
+  const role = typeof token?.role === 'string' ? token.role : undefined;
+  const isAuthenticated = Boolean(token?.sub);
+
+  if (pathname === '/') {
+    return NextResponse.next();
+  }
+
+  if (pathname === '/login') {
+    if (isAuthenticated) {
+      const redirectTo = role === 'CUSTOMER' ? '/portal' : '/dashboard';
+      return NextResponse.redirect(new URL(redirectTo, request.url));
+    }
+
+    return NextResponse.next();
+  }
+
+  if (CUSTOMER_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    if (!isAuthenticated) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+
+    if (role !== 'CUSTOMER') {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+
+    return NextResponse.next();
+  }
+
+  if (STAFF_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))) {
+    if (!isAuthenticated) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+
+    if (role === 'CUSTOMER') {
+      return NextResponse.redirect(new URL('/portal', request.url));
+    }
+
+    if (!['OWNER', 'ADMIN_KLINIK', 'DOKTER'].includes(role ?? '')) {
+      return NextResponse.redirect(new URL('/login', request.url));
+    }
+
     return NextResponse.next();
   }
 

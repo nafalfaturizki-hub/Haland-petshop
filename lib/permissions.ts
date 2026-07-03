@@ -17,6 +17,24 @@ export type ModuleName =
   | 'settings'
   | 'profile';
 
+export const STAFF_ROLES: Role[] = ['OWNER', 'ADMIN_KLINIK', 'DOKTER'];
+
+export function isStaffRole(role: string | undefined): role is Exclude<Role, 'CUSTOMER'> {
+  return Boolean(role && STAFF_ROLES.includes(role as Role));
+}
+
+export function isCustomerRole(role: string | undefined) {
+  return role === 'CUSTOMER';
+}
+
+export function getDefaultRedirectPath(role: string | undefined) {
+  if (!role) {
+    return '/login';
+  }
+
+  return isStaffRole(role) ? '/dashboard' : '/portal';
+}
+
 export function canAccessModule(role: Role, module: ModuleName) {
   const staffModules: ModuleName[] = [
     'dashboard',
@@ -81,8 +99,12 @@ export function canPerformAction(role: Role, module: ModuleName, action: 'create
  * If user doesn't have access, redirects to /dashboard.
  */
 export function requireModuleAccess(role: Role | undefined, module: ModuleName) {
-  if (!role || !canAccessModule(role as Role, module)) {
-    redirect('/dashboard');
+  if (!role) {
+    redirect('/login');
+  }
+
+  if (!canAccessModule(role as Role, module)) {
+    redirect(getDefaultRedirectPath(role));
   }
 }
 

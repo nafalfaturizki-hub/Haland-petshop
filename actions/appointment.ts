@@ -6,10 +6,10 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
 const appointmentSchema = z.object({
-  petId: z.string().min(1),
+  petId: z.string().min(1, 'Pilih hewan terlebih dahulu.'),
   customerId: z.string().optional(),
   doctorId: z.string().optional().or(z.literal('')),
-  date: z.string().min(1),
+  date: z.string().min(1, 'Pilih tanggal dan waktu.'),
   queueNumber: z.coerce.number().int().positive().optional().nullable(),
   status: z.enum(['WAITING', 'IN_PROGRESS', 'DONE', 'CANCELLED']).optional(),
   requestedByCustomer: z.boolean().optional(),
@@ -40,6 +40,39 @@ function getActorId(session: any) {
 
 async function getCustomerForSession(sessionId: string) {
   return prisma.customer.findFirst({ where: { userId: sessionId } });
+}
+
+async function validateAppointmentTime(date: Date) {
+  const appointmentDate = new Date(date);
+  if (Number.isNaN(appointmentDate.getTime())) {
+    return { allowed: false, message: 'Tanggal tidak valid.' };
+  }
+
+  if (appointmentDate < new Date()) {
+    return { allowed: false, message: 'Tidak bisa membuat jadwal di masa lalu.' };
+  }
+
+  const hour = appointmentDate.getHours();
+  if (hour < 8 || hour >= 17) {
+    return { allowed: false, message: 'Jam layanan hanya tersedia dari pukul 08.00 sampai 17.00.' };
+  }
+
+  return { allowed: true };
+}
+
+async function findDoctorConflict(doctorId: string | null | undefined, date: Date, excludeId?: string) {
+  if (!doctorId) {
+    return null;
+  }
+
+  return prisma.appointment.findFirst({
+    where: {
+      doctorId,
+      date,
+      status: { not: 'CANCELLED' },
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+  });
 }
 
 export async function listAppointmentLookups() {
@@ -162,6 +195,16 @@ export async function createAppointment(input: z.infer<typeof appointmentSchema>
       return { success: false, message: 'Hewan yang dipilih tidak milik Anda.' };
     }
 
+    const timeValidation = await validateAppointmentTime(new Date(parsed.data.date));
+    if (!timeValidation.allowed) {
+      return { success: false, message: timeValidation.message };
+    }
+
+    const doctorConflict = await findDoctorConflict(parsed.data.doctorId || null, new Date(parsed.data.date));
+    if (doctorConflict) {
+      return { success: false, message: 'Dokter sudah memiliki jadwal pada waktu yang dipilih.' };
+    }
+
     const appointment = await prisma.appointment.create({
       data: {
         petId: parsed.data.petId,
@@ -190,6 +233,16 @@ export async function createAppointment(input: z.infer<typeof appointmentSchema>
   const pet = await prisma.pet.findFirst({ where: { id: parsed.data.petId, customerId: parsed.data.customerId } });
   if (!pet) {
     return { success: false, message: 'Hewan yang dipilih tidak cocok dengan pelanggan.' };
+  }
+
+  const timeValidation = await validateAppointmentTime(new Date(parsed.data.date));
+  if (!timeValidation.allowed) {
+    return { success: false, message: timeValidation.message };
+  }
+
+  const doctorConflict = await findDoctorConflict(parsed.data.doctorId || null, new Date(parsed.data.date));
+  if (doctorConflict) {
+    return { success: false, message: 'Dokter sudah memiliki jadwal pada waktu yang dipilih.' };
   }
 
   const appointment = await prisma.appointment.create({
@@ -237,6 +290,11 @@ export async function updateAppointment(input: z.infer<typeof updateAppointmentS
       return { success: false, message: 'Anda hanya bisa mengubah status jadwal yang ditugaskan ke Anda.' };
     }
 
+    const allowedStatuses = ['WAITING', 'IN_PROGRESS', 'DONE', 'CANCELLED'] as const;
+    if (parsed.data.status && !allowedStatuses.includes(parsed.data.status as (typeof allowedStatuses)[number])) {
+      return { success: false, message: 'Status tidak valid.' };
+    }
+
     const appointment = await prisma.appointment.update({
       where: { id: parsed.data.id },
       data: { status: parsed.data.status ?? existing.status },
@@ -245,6 +303,20 @@ export async function updateAppointment(input: z.infer<typeof updateAppointmentS
     revalidatePath('/appointments');
     revalidatePath('/dashboard');
     return { success: true, appointment };
+  }
+
+  if (parsed.data.date) {
+    const timeValidation = await validateAppointmentTime(new Date(parsed.data.date));
+    if (!timeValidation.allowed) {
+      return { success: false, message: timeValidation.message };
+    }
+  }
+
+  if (parsed.data.doctorId !== undefined || parsed.data.date) {
+    const doctorConflict = await findDoctorConflict(parsed.data.doctorId ?? existing.doctorId, parsed.data.date ? new Date(parsed.data.date) : existing.date, parsed.data.id);
+    if (doctorConflict) {
+      return { success: false, message: 'Dokter sudah memiliki jadwal pada waktu yang dipilih.' };
+    }
   }
 
   const appointment = await prisma.appointment.update({
@@ -296,6 +368,10 @@ export async function cancelAppointment(input: z.infer<typeof cancelAppointmentS
 
   if (actorRole === 'DOKTER') {
     return { success: false, message: 'Dokter tidak dapat membatalkan jadwal.' };
+  }
+
+  if (existing.status === 'DONE' || existing.status === 'CANCELLED' || existing.status === 'IN_PROGRESS') {
+    return { success: false, message: 'Jadwal yang sedang berjalan tidak bisa dibatalkan.' };
   }
 
   const appointment = await prisma.appointment.update({

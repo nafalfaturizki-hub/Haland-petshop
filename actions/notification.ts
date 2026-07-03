@@ -31,6 +31,7 @@ export async function getNotifications() {
     where: { userId: actorId },
     orderBy: { date: 'desc' },
     take: 10,
+    select: { id: true, title: true, message: true, isRead: true, type: true, date: true },
   });
 
   const unreadCount = notifications.filter((notification) => !notification.isRead).length;

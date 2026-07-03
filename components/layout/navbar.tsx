@@ -12,20 +12,34 @@ export function Navbar() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Array<{ category: string; items: Array<{ id: string; title: string; subtitle: string; href: string }> }> | null>(null);
   const [message, setMessage] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
 
   async function handleSearch(event: React.FormEvent) {
     event.preventDefault();
-    if (!query.trim()) return;
+    const trimmedQuery = query.trim();
 
-    const result = await searchGlobal({ query });
+    if (!trimmedQuery) {
+      setResults([]);
+      setMessage('Masukkan kata kunci pencarian.');
+      return;
+    }
+
+    setIsSearching(true);
+    setMessage('');
+    setResults(null);
+
+    const result = await searchGlobal({ query: trimmedQuery });
     if (result.success) {
       setResults(result.data?.results ?? []);
-      setMessage('');
+      if ((result.data?.results ?? []).length === 0) {
+        setMessage('Tidak ada hasil yang cocok.');
+      }
       return;
     }
 
     setResults(null);
     setMessage(result.message ?? 'Pencarian gagal.');
+    setIsSearching(false);
   }
 
   return (
@@ -41,12 +55,19 @@ export function Navbar() {
             <SearchIcon className="h-4 w-4 text-zinc-500" />
             <input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                if (!event.target.value.trim()) {
+                  setResults([]);
+                  setMessage('');
+                }
+              }}
               placeholder="Pencarian global..."
               className="w-full bg-transparent text-sm outline-none"
+              aria-label="Kata kunci pencarian"
             />
-            <button type="submit" className="rounded-full bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white">
-              Cari
+            <button type="submit" disabled={isSearching} className="rounded-full bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" aria-busy={isSearching}>
+              {isSearching ? 'Mencari...' : 'Cari'}
             </button>
           </form>
           <NotificationBell />
@@ -86,7 +107,7 @@ export function Navbar() {
         </div>
       ) : null}
 
-      {message ? <p className="mt-2 text-sm text-rose-600">{message}</p> : null}
+      {message ? <p className="mt-2 text-sm text-rose-600" role="status">{message}</p> : null}
     </header>
   );
 }

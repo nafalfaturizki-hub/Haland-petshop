@@ -1,36 +1,47 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { getSession, signIn } from 'next-auth/react';
+import { useEffect, useState } from 'react';
+import { getSession, signIn, useSession } from 'next-auth/react';
 
 export default function LoginPage() {
   const router = useRouter();
+  const { data: session } = useSession();
   const [username, setUsername] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (session?.user?.id) {
+      const role = (session.user as { role?: string } | undefined)?.role;
+      router.replace(role === 'CUSTOMER' ? '/portal' : '/dashboard');
+    }
+  }, [router, session]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setIsSubmitting(true);
 
-    const result = await signIn('credentials', {
-      username,
-      pin,
-      redirect: false,
-    });
+    try {
+      const result = await signIn('credentials', {
+        username: username.trim(),
+        pin,
+        redirect: false,
+      });
 
-    if (result?.ok) {
-      const session = await getSession();
-      const role = (session?.user as { role?: string } | undefined)?.role;
-      router.replace(role === 'CUSTOMER' ? '/portal' : '/dashboard');
-      return;
+      if (result?.ok) {
+        const activeSession = await getSession();
+        const role = (activeSession?.user as { role?: string } | undefined)?.role;
+        router.replace(role === 'CUSTOMER' ? '/portal' : '/dashboard');
+        return;
+      }
+
+      setError('Username atau PIN salah, atau akun sedang dikunci.');
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setError('Username atau PIN salah, atau akun sedang dikunci.');
-    setIsSubmitting(false);
   }
 
   return (

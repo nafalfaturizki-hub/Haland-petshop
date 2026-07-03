@@ -34,6 +34,10 @@ export async function searchGlobal(input: z.infer<typeof searchSchema>) {
     return { success: false, message: 'Query pencarian tidak valid.', data: null };
   }
 
+  if (!actorId) {
+    return { success: false, message: 'Tidak terautentikasi.', data: null };
+  }
+
   if (!isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang melakukan pencarian global.', data: null };
   }

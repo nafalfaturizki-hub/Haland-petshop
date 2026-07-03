@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
-import { Banknote, BarChart3, CalendarDays, PawPrint, Receipt, Stethoscope, Users, Warehouse } from 'lucide-react';
+import { Banknote, BarChart3, CalendarDays, PawPrint, Receipt, Stethoscope, Users, Warehouse, RefreshCw } from 'lucide-react';
 import { getReportSummary } from '@/actions/report';
 import { formatCurrency } from '@/lib/utils';
 
@@ -29,29 +29,38 @@ export default function DashboardPage() {
   const [doctorSummary, setDoctorSummary] = useState<DoctorSummary | null>(null);
   const [staffSummary, setStaffSummary] = useState<StaffSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
-  useEffect(() => {
-    let isMounted = true;
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setIsRefreshing(true);
+    setError('');
 
-    async function loadData() {
-      const result = await getReportSummary();
-      if (!isMounted) return;
+    const result = await getReportSummary();
 
-      if (result.success && result.data) {
-        if (result.data.role === 'DOKTER') {
-          setDoctorSummary(result.data.summary as DoctorSummary);
-        } else {
-          setStaffSummary(result.data.summary as StaffSummary);
-        }
+    if (result.success && result.data) {
+      if (result.data.role === 'DOKTER') {
+        setDoctorSummary(result.data.summary as DoctorSummary);
+        setStaffSummary(null);
+      } else {
+        setStaffSummary(result.data.summary as StaffSummary);
+        setDoctorSummary(null);
       }
-      setIsLoading(false);
+      setError('');
+    } else {
+      setDoctorSummary(null);
+      setStaffSummary(null);
+      setError(result.message ?? 'Gagal memuat ringkasan dashboard.');
     }
 
-    void loadData();
-    return () => {
-      isMounted = false;
-    };
+    setIsLoading(false);
+    setIsRefreshing(false);
   }, []);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData, role]);
 
   const isDoctor = role === 'DOKTER';
   const isOwner = role === 'OWNER';
@@ -83,19 +92,41 @@ export default function DashboardPage() {
 
   const cards = isDoctor ? doctorCards : staffCards;
 
+  const hasCards = cards.length > 0;
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <p className="text-sm text-zinc-500">Dashboard Staff</p>
-        <h1 className="mt-1 text-xl font-semibold text-zinc-900">
-          {isDoctor ? 'Jadwal & pasien saya' : 'Ringkasan operasional'}
-        </h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          {isDoctor
-            ? 'Ringkasan appointment dan pasien yang Anda tangani.'
-            : 'Ringkasan operasional klinik hari ini.'}
-        </p>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm text-zinc-500">Dashboard Staff</p>
+            <h1 className="mt-1 text-xl font-semibold text-zinc-900">
+              {isDoctor ? 'Jadwal & pasien saya' : 'Ringkasan operasional'}
+            </h1>
+            <p className="mt-2 text-sm text-zinc-600">
+              {isDoctor
+                ? 'Ringkasan appointment dan pasien yang Anda tangani.'
+                : 'Ringkasan operasional klinik hari ini.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadData()}
+            disabled={isRefreshing}
+            className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="Muat ulang ringkasan dashboard"
+          >
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            {isRefreshing ? 'Memuat ulang...' : 'Segarkan'}
+          </button>
+        </div>
       </div>
+
+      {error ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700" role="alert">
+          {error}
+        </div>
+      ) : null}
 
       {isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -104,23 +135,31 @@ export default function DashboardPage() {
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {cards.map((card) => {
-            const Icon = card.icon;
-            return (
-              <div key={card.title} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-zinc-600">{card.title}</p>
-                  <div className="rounded-lg bg-zinc-100 p-2 text-zinc-700">
-                    <Icon className="h-4 w-4" />
+        <>
+          {!hasCards ? (
+            <div className="rounded-xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600 shadow-sm">
+              Tidak ada data ringkasan yang tersedia untuk peran saat ini.
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {cards.map((card) => {
+                const Icon = card.icon;
+                return (
+                  <div key={card.title} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-zinc-600">{card.title}</p>
+                      <div className="rounded-lg bg-zinc-100 p-2 text-zinc-700">
+                        <Icon className="h-4 w-4" />
+                      </div>
+                    </div>
+                    <p className="mt-4 text-2xl font-semibold text-zinc-900">{card.value}</p>
+                    <p className="mt-1 text-sm text-zinc-500">{card.subtitle}</p>
                   </div>
-                </div>
-                <p className="mt-4 text-2xl font-semibold text-zinc-900">{card.value}</p>
-                <p className="mt-1 text-sm text-zinc-500">{card.subtitle}</p>
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
