@@ -8,8 +8,14 @@
     "start": "next start",
     "lint": "next lint",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev --name init",
-    "prisma:seed": "prisma db seed"
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "prisma db seed",
+    "db:push": "prisma db push",
+    "db:reset": "prisma migrate reset",
+    "db:studio": "prisma studio",
+    "db:deploy": "prisma migrate deploy",
+    "setup": "bash scripts/setup.sh",
+    "test:db": "node scripts/test-db.js"
   },
   "dependencies": {
     "@prisma/client": "^6.0.0",
@@ -23,6 +29,9 @@
     "recharts": "^3.9.1",
     "sonner": "^2.0.7",
     "zod": "^3.24.0"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.ts"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.11",
