@@ -18,9 +18,10 @@ type InventoryRow = {
 export default function InventoryPage() {
   const [products, setProducts] = useState<InventoryRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<string>('');
-  const [form, setForm] = useState({ type: 'IN' as 'IN' | 'OUT' | 'ADJUSTMENT', quantity: '', note: '' });
+  const [form, setForm] = useState({ type: 'IN' as 'IN' | 'OUT' | 'ADJUSTMENT' | 'RETURN' | 'DAMAGED' | 'EXPIRED' | 'CORRECTION', quantity: '', note: '' });
   const [movements, setMovements] = useState<any[]>([]);
   const [showMovements, setShowMovements] = useState(false);
 
@@ -44,20 +45,24 @@ export default function InventoryPage() {
       return;
     }
 
+    setSubmitting(true);
     const result = await recordStockMovement({
       productId: selectedProduct,
       type: form.type,
-      quantity: parseInt(form.quantity),
+      quantity: parseInt(form.quantity, 10),
       note: form.note || undefined,
     });
 
     if (result.success) {
-      setMessage(`Stok berhasil ${form.type === 'IN' ? 'masuk' : form.type === 'OUT' ? 'keluar' : 'disesuaikan'}.`);
+      const label = form.type === 'IN' ? 'masuk' : form.type === 'OUT' ? 'keluar' : form.type === 'ADJUSTMENT' ? 'disesuaikan' : form.type === 'RETURN' ? 'dikembalikan' : form.type === 'DAMAGED' ? 'rusak' : form.type === 'EXPIRED' ? 'kedaluwarsa' : 'dikoreksi';
+      setMessage(`Stok berhasil ${label}.`);
       setForm({ type: 'IN', quantity: '', note: '' });
       await loadInventory();
+      setSubmitting(false);
       return;
     }
     setMessage(result.message ?? 'Gagal mencatat pergerakan stok.');
+    setSubmitting(false);
   }
 
   async function showMovementHistory() {
@@ -121,12 +126,16 @@ export default function InventoryPage() {
               <option value="IN">Masuk</option>
               <option value="OUT">Keluar</option>
               <option value="ADJUSTMENT">Penyesuaian</option>
+              <option value="RETURN">Retur</option>
+              <option value="DAMAGED">Rusak</option>
+              <option value="EXPIRED">Kedaluwarsa</option>
+              <option value="CORRECTION">Koreksi</option>
             </select>
           </label>
 
           <label className="block text-sm text-zinc-600">
             Jumlah
-            <input type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+            <input type="number" min="0" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
           </label>
 
           <label className="block text-sm text-zinc-600">
@@ -134,8 +143,8 @@ export default function InventoryPage() {
             <textarea value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" rows={2} />
           </label>
 
-          <button type="submit" className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
-            Catat Pergerakan
+          <button type="submit" disabled={submitting} className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70">
+            {submitting ? 'Menyimpan...' : 'Catat Pergerakan'}
           </button>
 
           {selectedProduct && (
@@ -158,7 +167,7 @@ export default function InventoryPage() {
                   <div className="flex items-center gap-3">
                     {m.type === 'IN' ? <ArrowDown className="h-4 w-4 text-green-600" /> : m.type === 'OUT' ? <ArrowUp className="h-4 w-4 text-red-600" /> : <RefreshCw className="h-4 w-4 text-blue-600" />}
                     <div>
-                      <p className="font-medium text-zinc-900">{m.type === 'IN' ? 'Masuk' : m.type === 'OUT' ? 'Keluar' : 'Penyesuaian'} {m.quantity} unit</p>
+                      <p className="font-medium text-zinc-900">{m.type === 'IN' ? 'Masuk' : m.type === 'OUT' ? 'Keluar' : m.type === 'ADJUSTMENT' ? 'Penyesuaian' : m.type === 'RETURN' ? 'Retur' : m.type === 'DAMAGED' ? 'Rusak' : m.type === 'EXPIRED' ? 'Kedaluwarsa' : 'Koreksi'} {m.quantity} unit</p>
                       <p className="text-xs text-zinc-500">{m.note ?? 'Tanpa catatan'}</p>
                     </div>
                   </div>

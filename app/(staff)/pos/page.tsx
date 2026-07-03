@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Banknote, Barcode, CheckCircle2, CreditCard, Printer, Search, ShoppingBag, UserPlus } from 'lucide-react';
-import { DataTable } from '@/components/shared/data-table';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { createPosSale, searchProducts } from '@/actions/pos';
 import { getInvoiceLookups } from '@/actions/invoice';
+import { calculatePosTotals } from '@/lib/pos';
 
 type ProductRow = {
   id: string;
@@ -37,6 +37,8 @@ export default function PosPage() {
   const [paymentAmount, setPaymentAmount] = useState('0');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'NON_CASH'>('CASH');
   const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [taxRate, setTaxRate] = useState('0');
   const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
 
   useEffect(() => {
@@ -98,9 +100,9 @@ export default function PosPage() {
 
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.qty * item.price, 0), [cart]);
   const discount = Number(discountAmount) || 0;
-  const total = Math.max(0, subtotal - discount);
+  const totals = useMemo(() => calculatePosTotals(subtotal, discount, Number(taxRate) || 0), [subtotal, discount, taxRate]);
   const payment = Number(paymentAmount) || 0;
-  const change = Math.max(0, payment - total);
+  const change = Math.max(0, payment - totals.totalAmount);
 
   async function handleCheckout(event: React.FormEvent) {
     event.preventDefault();
@@ -112,7 +114,12 @@ export default function PosPage() {
       setMessage('Keranjang kosong.');
       return;
     }
+    if (payment < totals.totalAmount) {
+      setMessage('Jumlah pembayaran kurang dari total transaksi.');
+      return;
+    }
 
+    setSubmitting(true);
     const result = await createPosSale({
       customerId,
       items: cart.map((item) => ({
@@ -124,10 +131,12 @@ export default function PosPage() {
       discountAmount: discount,
       paymentMethod,
       paymentAmount: payment,
+      taxRate: Number(taxRate) || 0,
     });
 
     if (!result.success) {
       setMessage(result.message ?? 'Gagal menyimpan transaksi.');
+      setSubmitting(false);
       return;
     }
 
@@ -135,7 +144,9 @@ export default function PosPage() {
     setCart([]);
     setDiscountAmount('0');
     setPaymentAmount('0');
+    setTaxRate('0');
     setMessage(`Transaksi berhasil. Kembalian ${formatCurrency(change)}.`);
+    setSubmitting(false);
   }
 
   function handlePrint() {
@@ -291,12 +302,18 @@ export default function PosPage() {
             <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="flex items-center justify-between text-sm text-zinc-600"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex items-center justify-between text-sm text-zinc-600"><span>Diskon</span><span>{formatCurrency(discount)}</span></div>
-              <div className="flex items-center justify-between text-base font-semibold text-zinc-900"><span>Total</span><span>{formatCurrency(total)}</span></div>
+              <div className="flex items-center justify-between text-sm text-zinc-600"><span>Pajak</span><span>{formatCurrency(totals.taxAmount)}</span></div>
+              <div className="flex items-center justify-between text-base font-semibold text-zinc-900"><span>Total</span><span>{formatCurrency(totals.totalAmount)}</span></div>
             </div>
 
             <label className="block text-sm text-zinc-600">
               Diskon (Rp)
               <input type="number" min="0" value={discountAmount} onChange={(event) => setDiscountAmount(event.target.value)} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+            </label>
+
+            <label className="block text-sm text-zinc-600">
+              Pajak (%)
+              <input type="number" min="0" value={taxRate} onChange={(event) => setTaxRate(event.target.value)} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
             </label>
 
             <label className="block text-sm text-zinc-600">
@@ -313,9 +330,14 @@ export default function PosPage() {
             </label>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <button type="button" onClick={handleCheckout} className="inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white">
-                <ArrowRight className="h-4 w-4" /> Bayar
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setCart([])} className="inline-flex items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-700">
+                  Bersihkan Keranjang
+                </button>
+                <button type="button" onClick={handleCheckout as any} disabled={submitting} className="inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70">
+                  <ArrowRight className="h-4 w-4" /> {submitting ? 'Memproses...' : 'Bayar'}
+                </button>
+              </div>
               {createdInvoice ? (
                 <button type="button" onClick={handlePrint} className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm font-medium text-zinc-700">
                   <Printer className="h-4 w-4" /> Cetak Struk
@@ -338,6 +360,7 @@ export default function PosPage() {
             <p>Total: <strong className="text-zinc-900">{formatCurrency(createdInvoice.totalAmount)}</strong></p>
             <p>Status: <strong className="text-zinc-900">{createdInvoice.status}</strong></p>
             <p>Kembalian: <strong className="text-zinc-900">{formatCurrency(change)}</strong></p>
+            <p>Pajak: <strong className="text-zinc-900">{formatCurrency(totals.taxAmount)}</strong></p>
           </div>
         </section>
       ) : null}

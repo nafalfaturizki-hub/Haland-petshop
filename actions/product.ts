@@ -6,15 +6,22 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
 const productSchema = z.object({
-  name: z.string().min(1).max(200),
-  sku: z.string().optional(),
-  barcode: z.string().optional(),
-  categoryId: z.string().optional(),
-  supplierId: z.string().optional(),
-  buyPrice: z.coerce.number().min(0),
-  sellPrice: z.coerce.number().min(0),
-  stock: z.coerce.number().int().min(0),
-  minStock: z.coerce.number().int().min(0),
+  name: z.string().trim().min(1, 'Nama produk wajib diisi.').max(200),
+  sku: z.string().trim().max(100).optional().or(z.literal('')),
+  barcode: z.string().trim().max(100).optional().or(z.literal('')),
+  brand: z.string().trim().max(100).optional().or(z.literal('')),
+  description: z.string().trim().max(2000).optional().or(z.literal('')),
+  categoryId: z.string().trim().optional().or(z.literal('')),
+  supplierId: z.string().trim().optional().or(z.literal('')),
+  unit: z.string().trim().max(50).optional().or(z.literal('')),
+  buyPrice: z.coerce.number().min(0, 'Harga beli tidak boleh negatif.'),
+  sellPrice: z.coerce.number().min(0, 'Harga jual tidak boleh negatif.'),
+  costPrice: z.coerce.number().min(0, 'Harga pokok tidak boleh negatif.').optional(),
+  stock: z.coerce.number().int().min(0, 'Stok tidak boleh negatif.'),
+  minStock: z.coerce.number().int().min(0, 'Stok minimum tidak boleh negatif.'),
+  maxStock: z.coerce.number().int().min(0, 'Stok maksimum tidak boleh negatif.').optional(),
+  status: z.enum(['ACTIVE', 'ARCHIVED']).optional(),
+  imageUrl: z.string().trim().max(500).optional().or(z.literal('')),
 });
 
 const updateProductSchema = productSchema.extend({
@@ -22,7 +29,7 @@ const updateProductSchema = productSchema.extend({
 });
 
 const categorySchema = z.object({
-  name: z.string().min(1).max(100),
+  name: z.string().trim().min(1, 'Nama kategori wajib diisi.').max(100),
 });
 
 const updateCategorySchema = categorySchema.extend({
@@ -30,8 +37,8 @@ const updateCategorySchema = categorySchema.extend({
 });
 
 const supplierSchema = z.object({
-  name: z.string().min(1).max(200),
-  contact: z.string().optional(),
+  name: z.string().trim().min(1, 'Nama supplier wajib diisi.').max(200),
+  contact: z.string().trim().max(200).optional().or(z.literal('')),
 });
 
 const updateSupplierSchema = supplierSchema.extend({
@@ -46,13 +53,56 @@ function getActorId(session: Awaited<ReturnType<typeof auth>>) {
   return session?.user?.id;
 }
 
+function isStaff(role?: string) {
+  return role === 'OWNER' || role === 'ADMIN_KLINIK';
+}
+
+function normalizeOptionalText(value: string | undefined | null) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action,
+      entity,
+      entityId,
+      description,
+    },
+  });
+}
+
+async function validateProductUniqueness(sku: string | null, barcode: string | null, excludeId?: string) {
+  if (!sku && !barcode) return null;
+
+  const existing = await prisma.product.findFirst({
+    where: {
+      AND: [
+        {
+          OR: [
+            ...(sku ? [{ sku }] : []),
+            ...(barcode ? [{ barcode }] : []),
+          ],
+        },
+        ...(excludeId ? [{ id: { not: excludeId } }] : []),
+      ],
+    },
+    select: { id: true, name: true },
+  });
+
+  return existing;
+}
+
 // CATEGORIES
 export async function listProductCategories() {
   const session = await auth();
   const actorRole = getActorRole(session);
   const actorId = getActorId(session);
 
-  if (!actorId || !['OWNER', 'ADMIN_KLINIK'].includes(actorRole ?? '')) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang melihat data ini.' };
   }
 
@@ -73,7 +123,7 @@ export async function createProductCategory(input: z.infer<typeof categorySchema
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  if (!actorId || !['OWNER', 'ADMIN_KLINIK'].includes(actorRole ?? '')) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang membuat kategori.' };
   }
 
@@ -95,7 +145,7 @@ export async function updateProductCategory(input: z.infer<typeof updateCategory
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  if (!actorId || !['OWNER', 'ADMIN_KLINIK'].includes(actorRole ?? '')) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang mengubah kategori.' };
   }
 
@@ -129,7 +179,7 @@ export async function listSuppliers() {
   const actorRole = getActorRole(session);
   const actorId = getActorId(session);
 
-  if (!actorId || !['OWNER', 'ADMIN_KLINIK'].includes(actorRole ?? '')) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang melihat data ini.' };
   }
 
@@ -150,12 +200,12 @@ export async function createSupplier(input: z.infer<typeof supplierSchema>) {
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  if (!actorId || !['OWNER', 'ADMIN_KLINIK'].includes(actorRole ?? '')) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang membuat supplier.' };
   }
 
   const supplier = await prisma.supplier.create({
-    data: { name: parsed.data.name, contact: parsed.data.contact || null },
+    data: { name: parsed.data.name, contact: normalizeOptionalText(parsed.data.contact) },
   });
 
   revalidatePath('/petshop/products');
@@ -172,13 +222,13 @@ export async function updateSupplier(input: z.infer<typeof updateSupplierSchema>
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  if (!actorId || !['OWNER', 'ADMIN_KLINIK'].includes(actorRole ?? '')) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang mengubah supplier.' };
   }
 
   const supplier = await prisma.supplier.update({
     where: { id: parsed.data.id },
-    data: { name: parsed.data.name, contact: parsed.data.contact || null },
+    data: { name: parsed.data.name, contact: normalizeOptionalText(parsed.data.contact) },
   });
 
   revalidatePath('/petshop/products');
@@ -206,7 +256,7 @@ export async function listProducts() {
   const actorRole = getActorRole(session);
   const actorId = getActorId(session);
 
-  if (!actorId || !['OWNER', 'ADMIN_KLINIK'].includes(actorRole ?? '')) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang melihat data ini.' };
   }
 
@@ -228,22 +278,55 @@ export async function createProduct(input: z.infer<typeof productSchema>) {
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  if (!actorId || !['OWNER', 'ADMIN_KLINIK'].includes(actorRole ?? '')) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang membuat produk.' };
   }
 
-  const product = await prisma.product.create({
-    data: {
-      name: parsed.data.name,
-      sku: parsed.data.sku || null,
-      barcode: parsed.data.barcode || null,
-      categoryId: parsed.data.categoryId || null,
-      supplierId: parsed.data.supplierId || null,
-      buyPrice: parsed.data.buyPrice,
-      sellPrice: parsed.data.sellPrice,
-      stock: parsed.data.stock,
-      minStock: parsed.data.minStock,
-    },
+  if (parsed.data.sellPrice < Math.max(parsed.data.buyPrice, parsed.data.costPrice ?? 0)) {
+    return { success: false, message: 'Harga jual tidak boleh di bawah harga pokok atau harga beli.' };
+  }
+
+  const normalizedSku = normalizeOptionalText(parsed.data.sku)?.toUpperCase() ?? null;
+  const normalizedBarcode = normalizeOptionalText(parsed.data.barcode) ?? null;
+  const conflict = await validateProductUniqueness(normalizedSku, normalizedBarcode);
+  if (conflict) {
+    return { success: false, message: `SKU atau barcode sudah digunakan oleh ${conflict.name}.` };
+  }
+
+  const product = await prisma.$transaction(async (tx) => {
+    const created = await tx.product.create({
+      data: {
+        name: parsed.data.name,
+        sku: normalizedSku,
+        barcode: normalizedBarcode,
+        brand: normalizeOptionalText(parsed.data.brand),
+        description: normalizeOptionalText(parsed.data.description),
+        categoryId: normalizeOptionalText(parsed.data.categoryId),
+        supplierId: normalizeOptionalText(parsed.data.supplierId),
+        unit: normalizeOptionalText(parsed.data.unit),
+        buyPrice: parsed.data.buyPrice,
+        sellPrice: parsed.data.sellPrice,
+        costPrice: parsed.data.costPrice ?? parsed.data.buyPrice,
+        stock: parsed.data.stock,
+        minStock: parsed.data.minStock,
+        maxStock: parsed.data.maxStock ?? null,
+        status: parsed.data.status ?? 'ACTIVE',
+        imageUrl: normalizeOptionalText(parsed.data.imageUrl),
+        isArchived: (parsed.data.status ?? 'ACTIVE') === 'ARCHIVED',
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: actorId,
+        action: 'CREATE',
+        entity: 'Product',
+        entityId: created.id,
+        description: `Membuat produk ${created.name}`,
+      },
+    });
+
+    return created;
   });
 
   revalidatePath('/petshop/products');
@@ -261,22 +344,121 @@ export async function updateProduct(input: z.infer<typeof updateProductSchema>) 
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  if (!actorId || !['OWNER', 'ADMIN_KLINIK'].includes(actorRole ?? '')) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang mengubah produk.' };
   }
 
-  const product = await prisma.product.update({
-    where: { id: parsed.data.id },
-    data: {
-      name: parsed.data.name,
-      sku: parsed.data.sku || null,
-      barcode: parsed.data.barcode || null,
-      categoryId: parsed.data.categoryId || null,
-      supplierId: parsed.data.supplierId || null,
-      buyPrice: parsed.data.buyPrice,
-      sellPrice: parsed.data.sellPrice,
-      minStock: parsed.data.minStock,
-    },
+  if (parsed.data.sellPrice < Math.max(parsed.data.buyPrice, parsed.data.costPrice ?? 0)) {
+    return { success: false, message: 'Harga jual tidak boleh di bawah harga pokok atau harga beli.' };
+  }
+
+  const normalizedSku = normalizeOptionalText(parsed.data.sku)?.toUpperCase() ?? null;
+  const normalizedBarcode = normalizeOptionalText(parsed.data.barcode) ?? null;
+  const conflict = await validateProductUniqueness(normalizedSku, normalizedBarcode, parsed.data.id);
+  if (conflict) {
+    return { success: false, message: `SKU atau barcode sudah digunakan oleh ${conflict.name}.` };
+  }
+
+  const product = await prisma.$transaction(async (tx) => {
+    const updated = await tx.product.update({
+      where: { id: parsed.data.id },
+      data: {
+        name: parsed.data.name,
+        sku: normalizedSku,
+        barcode: normalizedBarcode,
+        brand: normalizeOptionalText(parsed.data.brand),
+        description: normalizeOptionalText(parsed.data.description),
+        categoryId: normalizeOptionalText(parsed.data.categoryId),
+        supplierId: normalizeOptionalText(parsed.data.supplierId),
+        unit: normalizeOptionalText(parsed.data.unit),
+        buyPrice: parsed.data.buyPrice,
+        sellPrice: parsed.data.sellPrice,
+        costPrice: parsed.data.costPrice ?? parsed.data.buyPrice,
+        minStock: parsed.data.minStock,
+        maxStock: parsed.data.maxStock ?? null,
+        status: parsed.data.status ?? 'ACTIVE',
+        imageUrl: normalizeOptionalText(parsed.data.imageUrl),
+        isArchived: (parsed.data.status ?? 'ACTIVE') === 'ARCHIVED',
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: actorId,
+        action: 'UPDATE',
+        entity: 'Product',
+        entityId: updated.id,
+        description: `Memperbarui produk ${updated.name}`,
+      },
+    });
+
+    return updated;
+  });
+
+  revalidatePath('/petshop/products');
+  revalidatePath('/petshop/inventory');
+  return { success: true, product };
+}
+
+export async function archiveProduct(id: string) {
+  const session = await auth();
+  const actorRole = getActorRole(session);
+  const actorId = getActorId(session);
+
+  if (!actorId || !isStaff(actorRole)) {
+    return { success: false, message: 'Anda tidak berwenang mengarsipkan produk.' };
+  }
+
+  const product = await prisma.$transaction(async (tx) => {
+    const updated = await tx.product.update({
+      where: { id },
+      data: { status: 'ARCHIVED', isArchived: true },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: actorId,
+        action: 'ARCHIVE',
+        entity: 'Product',
+        entityId: updated.id,
+        description: `Mengarsipkan produk ${updated.name}`,
+      },
+    });
+
+    return updated;
+  });
+
+  revalidatePath('/petshop/products');
+  revalidatePath('/petshop/inventory');
+  return { success: true, product };
+}
+
+export async function restoreProduct(id: string) {
+  const session = await auth();
+  const actorRole = getActorRole(session);
+  const actorId = getActorId(session);
+
+  if (!actorId || !isStaff(actorRole)) {
+    return { success: false, message: 'Anda tidak berwenang mengembalikan produk.' };
+  }
+
+  const product = await prisma.$transaction(async (tx) => {
+    const updated = await tx.product.update({
+      where: { id },
+      data: { status: 'ACTIVE', isArchived: false },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: actorId,
+        action: 'RESTORE',
+        entity: 'Product',
+        entityId: updated.id,
+        description: `Mengembalikan produk ${updated.name}`,
+      },
+    });
+
+    return updated;
   });
 
   revalidatePath('/petshop/products');
@@ -285,17 +467,5 @@ export async function updateProduct(input: z.infer<typeof updateProductSchema>) 
 }
 
 export async function deleteProduct(id: string) {
-  const session = await auth();
-  const actorRole = getActorRole(session);
-  const actorId = getActorId(session);
-
-  if (!actorId || actorRole !== 'OWNER') {
-    return { success: false, message: 'Hanya Owner yang dapat menghapus produk.' };
-  }
-
-  await prisma.product.delete({ where: { id } });
-
-  revalidatePath('/petshop/products');
-  revalidatePath('/petshop/inventory');
-  return { success: true };
+  return archiveProduct(id);
 }

@@ -7,25 +7,29 @@ import { prisma } from '@/lib/db';
 
 const invoiceItemSchema = z.object({
   type: z.enum(['KONSULTASI', 'TINDAKAN', 'OBAT', 'PET_HOTEL', 'PRODUK']),
-  description: z.string().min(1),
-  qty: z.coerce.number().int().min(1),
-  price: z.coerce.number().min(0),
+  description: z.string().trim().min(1, 'Deskripsi item wajib diisi.'),
+  qty: z.coerce.number().int().min(1, 'Kuantitas minimal 1.'),
+  price: z.coerce.number().min(0, 'Harga tidak boleh negatif.'),
 });
 
 const createInvoiceSchema = z.object({
-  customerId: z.string().min(1),
-  items: z.array(invoiceItemSchema).min(1),
+  customerId: z.string().trim().min(1, 'Pelanggan wajib dipilih.'),
+  appointmentId: z.string().trim().optional().or(z.literal('')),
+  medicalRecordId: z.string().trim().optional().or(z.literal('')),
+  petId: z.string().trim().optional().or(z.literal('')),
+  doctorId: z.string().trim().optional().or(z.literal('')),
+  items: z.array(invoiceItemSchema).min(1, 'Minimal satu item invoice.'),
   discountAmount: z.coerce.number().min(0).optional(),
+  taxRate: z.coerce.number().min(0).max(100).optional(),
+  notes: z.string().trim().max(2000).optional().or(z.literal('')),
   initialPaymentAmount: z.coerce.number().min(0).optional(),
   initialPaymentMethod: z.enum(['CASH', 'NON_CASH']).optional(),
 });
 
-const invoiceIdSchema = z.object({ id: z.string().min(1) });
-
 const recordPaymentSchema = z.object({
   invoiceId: z.string().min(1),
   method: z.enum(['CASH', 'NON_CASH']),
-  amount: z.coerce.number().min(0),
+  amount: z.coerce.number().min(0.01, 'Jumlah pembayaran minimal Rp 1.'),
 });
 
 const cancelInvoiceSchema = z.object({ id: z.string().min(1) });
@@ -42,6 +46,28 @@ function isStaff(role?: string) {
   return role === 'OWNER' || role === 'ADMIN_KLINIK';
 }
 
+function roundCurrency(value: number) {
+  return Number(value.toFixed(2));
+}
+
+function normalizeOptionalText(value: string | undefined | null) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action,
+      entity,
+      entityId,
+      description,
+    },
+  });
+}
+
 export async function getInvoiceLookups() {
   const session = await auth();
   const actorRole = getActorRole(session);
@@ -50,8 +76,14 @@ export async function getInvoiceLookups() {
     return { success: false, message: 'Anda tidak berwenang mengakses data ini.' };
   }
 
-  const customers = await prisma.customer.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } });
-  return { success: true, customers };
+  const [customers, appointments, medicalRecords, doctors] = await Promise.all([
+    prisma.customer.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+    prisma.appointment.findMany({ orderBy: { date: 'desc' }, select: { id: true, date: true, pet: { select: { name: true } }, customer: { select: { name: true } } } }),
+    prisma.medicalRecord.findMany({ orderBy: { date: 'desc' }, select: { id: true, recordNumber: true, date: true, pet: { select: { name: true } }, customer: { select: { name: true } } } }),
+    prisma.user.findMany({ where: { role: 'DOKTER' }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+  ]);
+
+  return { success: true, customers, appointments, medicalRecords, doctors };
 }
 
 export async function listInvoices() {
@@ -101,13 +133,14 @@ export async function getInvoiceById(id: string) {
 export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) {
   const session = await auth();
   const actorRole = getActorRole(session);
+  const actorId = getActorId(session);
   const parsed = createInvoiceSchema.safeParse(input);
 
   if (!parsed.success) {
     return { success: false, message: 'Data invoice tidak valid.' };
   }
 
-  if (!isStaff(actorRole)) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang membuat invoice.' };
   }
 
@@ -116,43 +149,103 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
     return { success: false, message: 'Pelanggan tidak ditemukan.' };
   }
 
-  const subtotal = parsed.data.items.reduce((sum, item) => sum + item.qty * item.price, 0);
-  const discountAmount = parsed.data.discountAmount ?? 0;
-  const totalAmount = Math.max(0, subtotal - discountAmount);
-  const invoiceNumber = `INV-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-  const initialPaymentAmount = parsed.data.initialPaymentAmount ?? 0;
-  const initialPaymentMethod = parsed.data.initialPaymentMethod ?? 'CASH';
-  const status = initialPaymentAmount >= totalAmount ? 'PAID' : 'UNPAID';
+  if (parsed.data.petId) {
+    const pet = await prisma.pet.findFirst({ where: { id: parsed.data.petId, customerId: customer.id } });
+    if (!pet) {
+      return { success: false, message: 'Hewan tidak terhubung ke pelanggan ini.' };
+    }
+  }
 
-  const invoice = await prisma.invoice.create({
-    data: {
-      customerId: parsed.data.customerId,
-      invoiceNumber,
-      status,
-      totalAmount,
-      items: {
-        create: parsed.data.items.map((item) => ({
-          type: item.type,
-          description: item.description,
-          qty: item.qty,
-          price: item.price,
-          subtotal: item.qty * item.price,
-        })),
-      },
-      payments: initialPaymentAmount > 0 ? {
-        create: {
-          method: initialPaymentMethod,
-          amount: initialPaymentAmount,
+  if (parsed.data.appointmentId) {
+    const appointment = await prisma.appointment.findFirst({ where: { id: parsed.data.appointmentId, customerId: customer.id } });
+    if (!appointment) {
+      return { success: false, message: 'Appointment tidak terhubung ke pelanggan ini.' };
+    }
+  }
+
+  if (parsed.data.medicalRecordId) {
+    const medicalRecord = await prisma.medicalRecord.findFirst({ where: { id: parsed.data.medicalRecordId, customerId: customer.id } });
+    if (!medicalRecord) {
+      return { success: false, message: 'Rekam medis tidak terhubung ke pelanggan ini.' };
+    }
+  }
+
+  if (parsed.data.doctorId) {
+    const doctor = await prisma.user.findFirst({ where: { id: parsed.data.doctorId, role: 'DOKTER' } });
+    if (!doctor) {
+      return { success: false, message: 'Dokter tidak ditemukan.' };
+    }
+  }
+
+  const subtotal = roundCurrency(parsed.data.items.reduce((sum, item) => sum + item.qty * item.price, 0));
+  const discountAmount = roundCurrency(Math.min(parsed.data.discountAmount ?? 0, subtotal));
+  const taxRate = roundCurrency(parsed.data.taxRate ?? 0);
+  const taxableAmount = roundCurrency(Math.max(0, subtotal - discountAmount));
+  const taxAmount = roundCurrency(taxableAmount * (taxRate / 100));
+  const totalAmount = roundCurrency(taxableAmount + taxAmount);
+
+  if (totalAmount < 0) {
+    return { success: false, message: 'Nilai tagihan tidak valid.' };
+  }
+
+  const invoiceNumber = `INV-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const initialPaymentAmount = roundCurrency(parsed.data.initialPaymentAmount ?? 0);
+  const initialPaymentMethod = parsed.data.initialPaymentMethod ?? 'CASH';
+
+  if (initialPaymentAmount > totalAmount) {
+    return { success: false, message: 'Pembayaran awal tidak boleh melebihi total tagihan.' };
+  }
+
+  const status = initialPaymentAmount <= 0 ? 'UNPAID' : initialPaymentAmount >= totalAmount ? 'PAID' : 'PARTIAL_PAYMENT';
+
+  const invoice = await prisma.$transaction(async (tx) => {
+    const createdInvoice = await tx.invoice.create({
+      data: {
+        customerId: parsed.data.customerId,
+        appointmentId: parsed.data.appointmentId || null,
+        medicalRecordId: parsed.data.medicalRecordId || null,
+        petId: parsed.data.petId || null,
+        doctorId: parsed.data.doctorId || null,
+        invoiceNumber,
+        status,
+        subtotal,
+        discountAmount,
+        taxRate,
+        taxAmount,
+        totalAmount,
+        notes: normalizeOptionalText(parsed.data.notes),
+        createdById: actorId,
+        items: {
+          create: parsed.data.items.map((item) => ({
+            type: item.type,
+            description: item.description,
+            qty: item.qty,
+            price: item.price,
+            subtotal: roundCurrency(item.qty * item.price),
+          })),
         },
-      } : undefined,
-    },
-    include: {
-      customer: true,
-      items: true,
-      payments: true,
-    },
+        ...(initialPaymentAmount > 0
+          ? {
+              payments: {
+                create: {
+                  method: initialPaymentMethod,
+                  amount: initialPaymentAmount,
+                },
+              },
+            }
+          : {}),
+      },
+      include: {
+        customer: true,
+        items: true,
+        payments: true,
+      },
+    });
+
+    return createdInvoice;
   });
 
+  await createAuditLog(actorId, 'CREATE', 'Invoice', invoice.id, `Membuat invoice ${invoice.invoiceNumber}`);
   revalidatePath('/billing');
   revalidatePath('/portal/invoices');
   revalidatePath('/dashboard');
@@ -163,13 +256,14 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
 export async function recordInvoicePayment(input: z.infer<typeof recordPaymentSchema>) {
   const session = await auth();
   const actorRole = getActorRole(session);
+  const actorId = getActorId(session);
   const parsed = recordPaymentSchema.safeParse(input);
 
   if (!parsed.success) {
     return { success: false, message: 'Data pembayaran tidak valid.' };
   }
 
-  if (!isStaff(actorRole)) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang mencatat pembayaran.' };
   }
 
@@ -182,28 +276,44 @@ export async function recordInvoicePayment(input: z.infer<typeof recordPaymentSc
     return { success: false, message: 'Invoice yang dibatalkan tidak bisa dibayar.' };
   }
 
-  await prisma.payment.create({
-    data: {
-      invoiceId: parsed.data.invoiceId,
-      method: parsed.data.method,
-      amount: parsed.data.amount,
-    },
-  });
+  if (invoice.status === 'PAID') {
+    return { success: false, message: 'Invoice sudah lunas.' };
+  }
 
   const aggregate = await prisma.payment.aggregate({
     _sum: { amount: true },
     where: { invoiceId: parsed.data.invoiceId },
   });
 
-  const totalPaid = aggregate._sum.amount ?? 0;
-  const status = totalPaid >= invoice.totalAmount ? 'PAID' : 'UNPAID';
+  const totalPaid = roundCurrency(aggregate._sum.amount ?? 0);
+  const outstanding = roundCurrency(invoice.totalAmount - totalPaid);
 
-  const updatedInvoice = await prisma.invoice.update({
-    where: { id: parsed.data.invoiceId },
-    data: { status },
-    include: { customer: true, items: true, payments: true },
+  if (parsed.data.amount > outstanding) {
+    return { success: false, message: 'Jumlah pembayaran melebihi sisa tagihan.' };
+  }
+
+  const updatedInvoice = await prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.create({
+      data: {
+        invoiceId: parsed.data.invoiceId,
+        method: parsed.data.method,
+        amount: roundCurrency(parsed.data.amount),
+      },
+    });
+
+    const nextPaid = roundCurrency(totalPaid + payment.amount);
+    const nextStatus = nextPaid >= invoice.totalAmount ? 'PAID' : 'PARTIAL_PAYMENT';
+
+    const updated = await tx.invoice.update({
+      where: { id: parsed.data.invoiceId },
+      data: { status: nextStatus },
+      include: { customer: true, items: true, payments: true },
+    });
+
+    return updated;
   });
 
+  await createAuditLog(actorId, 'PAYMENT', 'Invoice', updatedInvoice.id, `Mencatat pembayaran invoice ${updatedInvoice.invoiceNumber}`);
   revalidatePath('/billing');
   revalidatePath('/portal/invoices');
   revalidatePath('/dashboard');
@@ -214,13 +324,14 @@ export async function recordInvoicePayment(input: z.infer<typeof recordPaymentSc
 export async function cancelInvoice(input: z.infer<typeof cancelInvoiceSchema>) {
   const session = await auth();
   const actorRole = getActorRole(session);
+  const actorId = getActorId(session);
   const parsed = cancelInvoiceSchema.safeParse(input);
 
   if (!parsed.success) {
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  if (!isStaff(actorRole)) {
+  if (!actorId || !isStaff(actorRole)) {
     return { success: false, message: 'Anda tidak berwenang membatalkan invoice.' };
   }
 
@@ -233,12 +344,17 @@ export async function cancelInvoice(input: z.infer<typeof cancelInvoiceSchema>) 
     return { success: false, message: 'Invoice sudah dibatalkan.' };
   }
 
+  if (invoice.status === 'PAID') {
+    return { success: false, message: 'Invoice yang sudah lunas tidak bisa dibatalkan.' };
+  }
+
   const updatedInvoice = await prisma.invoice.update({
     where: { id: parsed.data.id },
     data: { status: 'CANCELLED' },
     include: { customer: true, items: true, payments: true },
   });
 
+  await createAuditLog(actorId, 'CANCEL', 'Invoice', updatedInvoice.id, `Membatalkan invoice ${updatedInvoice.invoiceNumber}`);
   revalidatePath('/billing');
   revalidatePath('/portal/invoices');
   revalidatePath('/dashboard');
@@ -312,7 +428,7 @@ export async function getPortalInvoiceSummary() {
   }
 
   const unpaidCount = await prisma.invoice.count({
-    where: { customerId: customer.id, status: 'UNPAID' },
+    where: { customerId: customer.id, status: { in: ['UNPAID', 'PARTIAL_PAYMENT'] } } ,
   });
 
   return { success: true, unpaidCount };

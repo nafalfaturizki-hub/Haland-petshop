@@ -44,11 +44,21 @@ enum StockMovementType {
   IN
   OUT
   ADJUSTMENT
+  RETURN
+  DAMAGED
+  EXPIRED
+  CORRECTION
   OPNAME
+}
+
+enum ProductStatus {
+  ACTIVE
+  ARCHIVED
 }
 
 enum InvoiceStatus {
   UNPAID
+  PARTIAL_PAYMENT
   PAID
   CANCELLED
 }
@@ -98,10 +108,11 @@ model Customer {
   address String?
   notes   String?
 
-  user          User?            @relation(fields: [userId], references: [id])
-  pets          Pet[]
-  appointments  Appointment[]
-  invoices      Invoice[]
+  user            User?            @relation(fields: [userId], references: [id])
+  pets            Pet[]
+  appointments    Appointment[]
+  medicalRecords  MedicalRecord[]
+  invoices        Invoice[]
 }
 
 model Pet {
@@ -179,20 +190,40 @@ model Appointment {
 }
 
 model MedicalRecord {
-  id            String   @id @default(cuid())
-  appointmentId String   @unique
-  petId         String
-  doctorId      String
-  diagnosis     String?
-  treatment     String?
-  prescription  String?
-  labResult     String?
-  photos        String?
-  date          DateTime @default(now())
+  id                String   @id @default(cuid())
+  recordNumber      String   @unique
+  appointmentId     String   @unique
+  customerId        String
+  petId             String
+  doctorId          String
+  date              DateTime @default(now())
+  chiefComplaint    String?
+  history           String?
+  physicalExam      String?
+  vitalSigns        String?
+  weight            Float?
+  temperature       Float?
+  heartRate         Int?
+  respiratoryRate   Int?
+  diagnosis         String?
+  treatment         String?
+  prescription      String?
+  labResult         String?
+  notes             String?
+  attachments       String?
+  status            String   @default("OPEN")
+  version           Int      @default(1)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   appointment Appointment @relation(fields: [appointmentId], references: [id])
+  customer    Customer    @relation(fields: [customerId], references: [id])
   pet         Pet         @relation(fields: [petId], references: [id])
   doctor      User        @relation("DoctorMedicalRecords", fields: [doctorId], references: [id])
+
+  @@index([customerId, date])
+  @@index([petId, date])
+  @@index([doctorId, date])
 }
 
 model PetHotelBooking {
@@ -229,19 +260,29 @@ model PetHotelLog {
 }
 
 model Product {
-  id         String  @id @default(cuid())
-  name       String
-  sku        String?
-  barcode    String?
-  categoryId String?
-  supplierId String?
-  buyPrice   Float   @default(0)
-  sellPrice  Float   @default(0)
-  stock      Int     @default(0)
-  minStock   Int     @default(0)
+  id           String        @id @default(cuid())
+  name         String
+  sku          String?
+  barcode      String?
+  brand        String?
+  description  String?
+  categoryId   String?
+  supplierId   String?
+  unit         String?
+  buyPrice     Float         @default(0)
+  sellPrice    Float         @default(0)
+  costPrice    Float         @default(0)
+  stock        Int           @default(0)
+  minStock     Int           @default(0)
+  maxStock     Int?
+  status       ProductStatus @default(ACTIVE)
+  imageUrl     String?
+  isArchived   Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
-  category      ProductCategory? @relation(fields: [categoryId], references: [id])
-  supplier      Supplier?        @relation(fields: [supplierId], references: [id])
+  category       ProductCategory? @relation(fields: [categoryId], references: [id])
+  supplier       Supplier?        @relation(fields: [supplierId], references: [id])
   stockMovements StockMovement[]
 }
 
@@ -272,12 +313,22 @@ model StockMovement {
 }
 
 model Invoice {
-  id            String        @id @default(cuid())
-  customerId    String
-  invoiceNumber String        @unique
-  status        InvoiceStatus @default(UNPAID)
-  totalAmount   Float         @default(0)
-  date          DateTime      @default(now())
+  id                String        @id @default(cuid())
+  customerId        String
+  appointmentId     String?
+  medicalRecordId   String?
+  petId             String?
+  doctorId          String?
+  createdById       String?
+  invoiceNumber     String        @unique
+  status            InvoiceStatus @default(UNPAID)
+  subtotal          Float         @default(0)
+  discountAmount    Float         @default(0)
+  taxRate           Float         @default(0)
+  taxAmount         Float         @default(0)
+  totalAmount       Float         @default(0)
+  notes             String?
+  date              DateTime      @default(now())
 
   customer Customer      @relation(fields: [customerId], references: [id])
   items    InvoiceItem[]

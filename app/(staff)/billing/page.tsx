@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CreditCard, FileIcon, Lock, Printer, Plus, Trash2, Wallet } from 'lucide-react';
+import { CreditCard, FileIcon, Printer, Plus, Trash2, Wallet } from 'lucide-react';
 import { DataTable } from '@/components/shared/data-table';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cancelInvoice, createInvoice, getInvoiceLookups, listInvoices, recordInvoicePayment } from '@/actions/invoice';
@@ -18,8 +18,15 @@ type InvoiceRow = {
   invoiceNumber: string;
   status: string;
   totalAmount: number;
+  subtotal?: number;
+  discountAmount?: number;
+  taxAmount?: number;
+  taxRate?: number;
+  notes?: string | null;
   date: string;
   customer: { name: string };
+  items?: Array<{ id: string; description: string; qty: number; price: number; subtotal: number; type: string }>;
+  payments?: Array<{ id: string; amount: number; method: string; date: string }>;
 };
 
 type CustomerOption = { id: string; name: string };
@@ -29,14 +36,18 @@ export default function BillingPage() {
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [message, setMessage] = useState('');
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     customerId: '',
     discountAmount: '0',
+    taxRate: '0',
+    notes: '',
     initialPaymentAmount: '0',
     initialPaymentMethod: 'CASH' as 'CASH' | 'NON_CASH',
   });
   const [itemForm, setItemForm] = useState<InvoiceItemForm>({ type: 'KONSULTASI', description: '', qty: '1', price: '0' });
   const [items, setItems] = useState<InvoiceItemForm[]>([]);
+  const [paymentForm, setPaymentForm] = useState({ amount: '0', method: 'CASH' as 'CASH' | 'NON_CASH' });
 
   useEffect(() => {
     void loadData();
@@ -71,7 +82,10 @@ export default function BillingPage() {
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + Number(item.qty) * Number(item.price), 0), [items]);
   const discount = Number(form.discountAmount) || 0;
-  const totalAmount = Math.max(0, subtotal - discount);
+  const taxRate = Number(form.taxRate) || 0;
+  const taxableAmount = Math.max(0, subtotal - discount);
+  const taxAmount = taxableAmount * (taxRate / 100);
+  const totalAmount = taxableAmount + taxAmount;
 
   async function handleCreateInvoice(event: React.FormEvent) {
     event.preventDefault();
@@ -84,6 +98,7 @@ export default function BillingPage() {
       return;
     }
 
+    setSubmitting(true);
     const result = await createInvoice({
       customerId: form.customerId,
       items: items.map((item) => ({
@@ -93,29 +108,39 @@ export default function BillingPage() {
         price: Number(item.price),
       })),
       discountAmount: discount,
+      taxRate,
+      notes: form.notes,
       initialPaymentAmount: Number(form.initialPaymentAmount),
       initialPaymentMethod: form.initialPaymentMethod,
     });
 
     if (!result.success) {
       setMessage(result.message ?? 'Gagal membuat invoice.');
+      setSubmitting(false);
       return;
     }
 
     setMessage('Invoice berhasil dibuat.');
     setItems([]);
-    setForm({ customerId: '', discountAmount: '0', initialPaymentAmount: '0', initialPaymentMethod: 'CASH' });
+    setForm({ customerId: '', discountAmount: '0', taxRate: '0', notes: '', initialPaymentAmount: '0', initialPaymentMethod: 'CASH' });
     await loadData();
+    setSubmitting(false);
   }
 
   async function handleRecordPayment(amount: number) {
     if (!selectedInvoiceId) return;
-    const result = await recordInvoicePayment({ invoiceId: selectedInvoiceId, method: 'CASH', amount });
+    if (!amount || amount <= 0) {
+      setMessage('Jumlah pembayaran harus lebih besar dari nol.');
+      return;
+    }
+
+    const result = await recordInvoicePayment({ invoiceId: selectedInvoiceId, method: paymentForm.method, amount });
     if (!result.success) {
       setMessage(result.message ?? 'Gagal mencatat pembayaran.');
       return;
     }
     setMessage('Pembayaran berhasil dicatat.');
+    setPaymentForm({ amount: '0', method: 'CASH' });
     await loadData();
   }
 
@@ -132,7 +157,8 @@ export default function BillingPage() {
   }
 
   function printInvoice(invoice: any) {
-    const html = `<!DOCTYPE html><html><head><title>Invoice ${invoice.invoiceNumber}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1,h2,h3{margin:0}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{padding:8px;border:1px solid #ccc;text-align:left}strong{display:inline-block;width:140px}</style></head><body><h1>Invoice</h1><p><strong>No. Invoice:</strong> ${invoice.invoiceNumber}</p><p><strong>Pelanggan:</strong> ${invoice.customer.name}</p><p><strong>Tanggal:</strong> ${formatDate(invoice.date)}</p><p><strong>Status:</strong> ${invoice.status}</p><table><thead><tr><th>Jenis</th><th>Deskripsi</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>${invoice.items.map((item: any) => `<tr><td>${item.type}</td><td>${item.description}</td><td>${item.qty}</td><td>${formatCurrency(item.price)}</td><td>${formatCurrency(item.subtotal)}</td></tr>`).join('')}</tbody></table><p><strong>Total:</strong> ${formatCurrency(invoice.totalAmount)}</p><p><strong>Pembayaran:</strong> ${formatCurrency(invoice.payments.reduce((sum: number, payment: any) => sum + payment.amount, 0))}</p></body></html>`;
+    const paymentTotal = (invoice.payments ?? []).reduce((sum: number, payment: any) => sum + payment.amount, 0);
+    const html = `<!DOCTYPE html><html><head><title>Invoice ${invoice.invoiceNumber}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1,h2,h3{margin:0}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{padding:8px;border:1px solid #ccc;text-align:left}strong{display:inline-block;width:140px}</style></head><body><h1>Invoice</h1><p><strong>No. Invoice:</strong> ${invoice.invoiceNumber}</p><p><strong>Pelanggan:</strong> ${invoice.customer.name}</p><p><strong>Tanggal:</strong> ${formatDate(invoice.date)}</p><p><strong>Status:</strong> ${invoice.status}</p><table><thead><tr><th>Jenis</th><th>Deskripsi</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>${(invoice.items ?? []).map((item: any) => `<tr><td>${item.type}</td><td>${item.description}</td><td>${item.qty}</td><td>${formatCurrency(item.price)}</td><td>${formatCurrency(item.subtotal)}</td></tr>`).join('')}</tbody></table><p><strong>Subtotal:</strong> ${formatCurrency(invoice.subtotal ?? 0)}</p><p><strong>Diskon:</strong> ${formatCurrency(invoice.discountAmount ?? 0)}</p><p><strong>Pajak:</strong> ${formatCurrency(invoice.taxAmount ?? 0)}</p><p><strong>Total:</strong> ${formatCurrency(invoice.totalAmount)}</p><p><strong>Pembayaran:</strong> ${formatCurrency(paymentTotal)}</p></body></html>`;
     const popup = window.open('', '_blank');
     if (popup) {
       popup.document.write(html);
@@ -140,6 +166,18 @@ export default function BillingPage() {
       popup.focus();
       popup.print();
     }
+  }
+
+  function downloadInvoice(invoice: any) {
+    const paymentTotal = (invoice.payments ?? []).reduce((sum: number, payment: any) => sum + payment.amount, 0);
+    const html = `<!DOCTYPE html><html><head><title>Invoice ${invoice.invoiceNumber}</title></head><body><h1>Invoice</h1><p>No. Invoice: ${invoice.invoiceNumber}</p><p>Pelanggan: ${invoice.customer.name}</p><p>Tanggal: ${formatDate(invoice.date)}</p><p>Status: ${invoice.status}</p><p>Subtotal: ${formatCurrency(invoice.subtotal ?? 0)}</p><p>Diskon: ${formatCurrency(invoice.discountAmount ?? 0)}</p><p>Pajak: ${formatCurrency(invoice.taxAmount ?? 0)}</p><p>Total: ${formatCurrency(invoice.totalAmount)}</p><p>Pembayaran: ${formatCurrency(paymentTotal)}</p></body></html>`;
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${invoice.invoiceNumber}.html`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   const tableRows = invoices.map((invoice) => ({
@@ -244,27 +282,39 @@ export default function BillingPage() {
                 <input type="number" min="0" value={form.discountAmount} onChange={(event) => setForm({ ...form, discountAmount: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
               </label>
               <label className="block text-sm text-zinc-600">
-                Bayar awal (opsional)
-                <input type="number" min="0" step="0.01" value={form.initialPaymentAmount} onChange={(event) => setForm({ ...form, initialPaymentAmount: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+                Pajak (%)
+                <input type="number" min="0" max="100" value={form.taxRate} onChange={(event) => setForm({ ...form, taxRate: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
               </label>
             </div>
 
             <label className="block text-sm text-zinc-600">
-              Metode pembayaran awal
-              <select value={form.initialPaymentMethod} onChange={(event) => setForm({ ...form, initialPaymentMethod: event.target.value as 'CASH' | 'NON_CASH' })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
-                <option value="CASH">Tunai</option>
-                <option value="NON_CASH">Non-tunai</option>
-              </select>
+              Catatan
+              <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
             </label>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block text-sm text-zinc-600">
+                Bayar awal (opsional)
+                <input type="number" min="0" step="0.01" value={form.initialPaymentAmount} onChange={(event) => setForm({ ...form, initialPaymentAmount: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="block text-sm text-zinc-600">
+                Metode pembayaran awal
+                <select value={form.initialPaymentMethod} onChange={(event) => setForm({ ...form, initialPaymentMethod: event.target.value as 'CASH' | 'NON_CASH' })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+                  <option value="CASH">Tunai</option>
+                  <option value="NON_CASH">Non-tunai</option>
+                </select>
+              </label>
+            </div>
 
             <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
               <div className="flex items-center justify-between"><span>Subtotal</span><span>{formatCurrency(subtotal)}</span></div>
               <div className="flex items-center justify-between"><span>Diskon</span><span>{formatCurrency(discount)}</span></div>
+              <div className="flex items-center justify-between"><span>Pajak</span><span>{formatCurrency(taxAmount)}</span></div>
               <div className="mt-2 flex items-center justify-between text-base font-semibold text-zinc-900"><span>Total</span><span>{formatCurrency(totalAmount)}</span></div>
             </div>
 
-            <button type="submit" className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white">
-              <CreditCard className="h-4 w-4" /> Simpan invoice
+            <button type="submit" disabled={submitting} className="inline-flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70">
+              <CreditCard className="h-4 w-4" /> {submitting ? 'Menyimpan...' : 'Simpan invoice'}
             </button>
           </form>
         </section>
@@ -313,6 +363,7 @@ export default function BillingPage() {
                     <button type="button" onClick={() => printInvoice(selectedInvoice)} className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">
                       <Printer className="h-4 w-4" /> Cetak
                     </button>
+                    <button type="button" onClick={() => downloadInvoice(selectedInvoice)} className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-700">Download</button>
                     <button type="button" onClick={handleCancelInvoice} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                       <Trash2 className="h-4 w-4" /> Batalkan
                     </button>
@@ -322,7 +373,27 @@ export default function BillingPage() {
                   <p><strong>Pelanggan:</strong> {selectedInvoice.customer.name}</p>
                   <p><strong>Tanggal:</strong> {selectedInvoice.date}</p>
                   <p><strong>Status:</strong> {selectedInvoice.status}</p>
+                  <p><strong>Subtotal:</strong> {formatCurrency(selectedInvoice.subtotal ?? 0)}</p>
+                  <p><strong>Diskon:</strong> {formatCurrency(selectedInvoice.discountAmount ?? 0)}</p>
+                  <p><strong>Pajak:</strong> {formatCurrency(selectedInvoice.taxAmount ?? 0)}</p>
                   <p><strong>Total:</strong> {formatCurrency(selectedInvoice.totalAmount)}</p>
+                  <p><strong>Sisa tagihan:</strong> {formatCurrency(Math.max(0, (selectedInvoice.totalAmount ?? 0) - ((selectedInvoice.payments ?? []).reduce((sum: number, payment: any) => sum + payment.amount, 0))))}</p>
+                  {selectedInvoice.notes ? <p><strong>Catatan:</strong> {selectedInvoice.notes}</p> : null}
+                </div>
+                <div className="mt-4 rounded-lg border border-zinc-200 bg-white p-3">
+                  <p className="text-sm font-semibold text-zinc-900">Catat pembayaran</p>
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <input type="number" min="0.01" step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm((current) => ({ ...current, amount: event.target.value }))} className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm" placeholder="Jumlah pembayaran" />
+                    <select value={paymentForm.method} onChange={(event) => setPaymentForm((current) => ({ ...current, method: event.target.value as 'CASH' | 'NON_CASH' }))} className="rounded-lg border border-zinc-200 px-3 py-2 text-sm">
+                      <option value="CASH">Tunai</option>
+                      <option value="NON_CASH">Non-tunai</option>
+                    </select>
+                    <button type="button" onClick={() => void handleRecordPayment(Number(paymentForm.amount))} className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Simpan</button>
+                  </div>
+                </div>
+                <div className="mt-4 rounded-lg border border-zinc-200 bg-white p-3">
+                  <p className="text-sm font-semibold text-zinc-900">Riwayat pembayaran</p>
+                  {(selectedInvoice.payments ?? []).length === 0 ? <p className="mt-2 text-sm text-zinc-500">Belum ada pembayaran.</p> : <ul className="mt-2 space-y-2 text-sm text-zinc-700">{(selectedInvoice.payments ?? []).map((payment: any) => <li key={payment.id} className="flex items-center justify-between"><span>{formatDate(payment.date)} • {payment.method}</span><span>{formatCurrency(payment.amount)}</span></li>)}</ul>}
                 </div>
               </div>
             ) : (
