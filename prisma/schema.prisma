@@ -27,11 +27,15 @@ enum PetHotelBookingStatus {
   BOOKED
   CHECKED_IN
   CHECKED_OUT
+  CANCELLED
 }
 
 enum PetHotelRoomStatus {
   AVAILABLE
+  RESERVED
   OCCUPIED
+  MAINTENANCE
+  INACTIVE
 }
 
 enum PetHotelLogType {
@@ -228,24 +232,36 @@ model MedicalRecord {
 
 model PetHotelBooking {
   id                  String                  @id @default(cuid())
+  bookingNumber       String?                 @unique
   petId               String
   roomId              String?
   checkInDate         DateTime
   checkOutDate        DateTime
   status              PetHotelBookingStatus  @default(BOOKED)
   requestedByCustomer Boolean                 @default(false)
+  notes               String?
 
   pet    Pet              @relation(fields: [petId], references: [id])
   room   PetHotelRoom?    @relation(fields: [roomId], references: [id])
   logs   PetHotelLog[]
+
+  @@index([status, checkInDate, checkOutDate])
+  @@index([roomId, checkInDate, checkOutDate])
 }
 
 model PetHotelRoom {
-  id     String               @id @default(cuid())
-  name   String
-  status PetHotelRoomStatus  @default(AVAILABLE)
+  id                 String               @id @default(cuid())
+  name               String
+  roomNumber         String?
+  roomType           String               @default("STANDARD")
+  capacity           Int                  @default(1)
+  status             PetHotelRoomStatus  @default(AVAILABLE)
+  cleaningStatus     String               @default("CLEAN")
+  maintenanceStatus  String               @default("OPERATIONAL")
 
   bookings PetHotelBooking[]
+
+  @@index([status])
 }
 
 model PetHotelLog {

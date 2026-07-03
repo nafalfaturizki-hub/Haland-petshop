@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { CalendarPlus } from 'lucide-react';
-import { cancelPetHotelBooking, createPetHotelBooking, listPetHotelBookings } from '@/actions/pet-hotel';
+import { cancelPetHotelBooking, createPetHotelBooking, listPetHotelBookings, listPetHotelPets } from '@/actions/pet-hotel';
 
 export default function CustomerPetHotelPage() {
   const [bookings, setBookings] = useState<any[]>([]);
-  const [form, setForm] = useState({ petId: '', checkInDate: '', checkOutDate: '' });
+  const [pets, setPets] = useState<any[]>([]);
+  const [form, setForm] = useState({ petId: '', checkInDate: '', checkOutDate: '', notes: '' });
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -15,9 +16,12 @@ export default function CustomerPetHotelPage() {
   }, []);
 
   async function loadData() {
-    const result = await listPetHotelBookings();
-    if (result.success) {
-      setBookings(result.bookings as any[]);
+    const [bookingsResult, petsResult] = await Promise.all([listPetHotelBookings(), listPetHotelPets()]);
+    if (bookingsResult.success) {
+      setBookings(bookingsResult.bookings as any[]);
+    }
+    if (petsResult.success) {
+      setPets((petsResult.pets as any[]) ?? []);
     }
     setLoading(false);
   }
@@ -29,11 +33,12 @@ export default function CustomerPetHotelPage() {
       checkInDate: form.checkInDate,
       checkOutDate: form.checkOutDate,
       requestedByCustomer: true,
+      notes: form.notes,
     });
 
     if (result.success) {
       setMessage('Permintaan reservasi berhasil dikirim.');
-      setForm({ petId: '', checkInDate: '', checkOutDate: '' });
+      setForm({ petId: '', checkInDate: '', checkOutDate: '', notes: '' });
       await loadData();
       return;
     }
@@ -70,9 +75,9 @@ export default function CustomerPetHotelPage() {
           Hewan
           <select value={form.petId} onChange={(e) => setForm({ ...form, petId: e.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
             <option value="">Pilih hewan</option>
-            {bookings.length > 0 && bookings.map((b) => (
-              <option key={b.pet.id} value={b.pet.id}>
-                {b.pet.name}
+            {pets.map((pet) => (
+              <option key={pet.id} value={pet.id}>
+                {pet.name}
               </option>
             ))}
           </select>
@@ -86,6 +91,11 @@ export default function CustomerPetHotelPage() {
         <label className="block text-sm text-zinc-600">
           Check-out
           <input type="date" value={form.checkOutDate} onChange={(e) => setForm({ ...form, checkOutDate: e.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+        </label>
+
+        <label className="block text-sm text-zinc-600">
+          Catatan
+          <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" rows={3} />
         </label>
 
         <button type="submit" className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">

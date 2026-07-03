@@ -15,7 +15,11 @@ export type ModuleName =
   | 'reports'
   | 'users'
   | 'settings'
+  | 'notifications'
+  | 'customer-portal'
   | 'profile';
+
+export type PermissionAction = 'create' | 'read' | 'update' | 'delete' | 'approve' | 'cancel' | 'export' | 'print' | 'payment' | 'stock-adjustment';
 
 export const STAFF_ROLES: Role[] = ['OWNER', 'ADMIN_KLINIK', 'DOKTER'];
 
@@ -35,6 +39,21 @@ export function getDefaultRedirectPath(role: string | undefined) {
   return isStaffRole(role) ? '/dashboard' : '/portal';
 }
 
+export function getRoleLabel(role: string | undefined) {
+  switch (role) {
+    case 'OWNER':
+      return 'Owner';
+    case 'ADMIN_KLINIK':
+      return 'Admin Klinik';
+    case 'DOKTER':
+      return 'Doctor';
+    case 'CUSTOMER':
+      return 'Customer';
+    default:
+      return 'Tidak diketahui';
+  }
+}
+
 export function canAccessModule(role: Role, module: ModuleName) {
   const staffModules: ModuleName[] = [
     'dashboard',
@@ -49,6 +68,8 @@ export function canAccessModule(role: Role, module: ModuleName) {
     'reports',
     'users',
     'settings',
+    'notifications',
+    'customer-portal',
     'profile',
   ];
 
@@ -67,16 +88,17 @@ export function canAccessModule(role: Role, module: ModuleName) {
   return ['dashboard', 'profile'].includes(module);
 }
 
-export function canPerformAction(role: Role, module: ModuleName, action: 'create' | 'read' | 'update' | 'delete') {
+export function canPerformAction(role: Role, module: ModuleName, action: PermissionAction) {
   if (role === 'OWNER') {
     return true;
   }
 
   if (role === 'ADMIN_KLINIK') {
-    if (module === 'medical-records') {
-      return action === 'read';
+    if (module === 'users') {
+      return ['create', 'read', 'update', 'delete'].includes(action);
     }
-    return true;
+
+    return ['create', 'read', 'update', 'delete', 'approve', 'cancel', 'export', 'print', 'payment', 'stock-adjustment'].includes(action);
   }
 
   if (role === 'DOKTER') {

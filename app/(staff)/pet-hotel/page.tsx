@@ -9,15 +9,22 @@ import { EmptyState } from '@/components/shared/empty-state';
 type RoomRow = {
   id: string;
   name: string;
+  roomNumber?: string | null;
+  roomType?: string | null;
+  capacity?: number | null;
   status: string;
+  cleaningStatus?: string | null;
+  maintenanceStatus?: string | null;
   occupancy: number;
 };
 
 type BookingRow = {
   id: string;
+  bookingNumber?: string | null;
   checkInDate: string;
   checkOutDate: string;
   status: string;
+  notes?: string | null;
   pet: { name: string; customer?: { name: string } | null };
   room: { name: string } | null;
 };
@@ -36,8 +43,8 @@ export default function PetHotelPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [roomForm, setRoomForm] = useState({ name: '', status: 'AVAILABLE' });
-  const [bookingForm, setBookingForm] = useState({ petId: '', roomId: '', checkInDate: '', checkOutDate: '' });
+  const [roomForm, setRoomForm] = useState({ name: '', roomNumber: '', roomType: 'STANDARD', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' });
+  const [bookingForm, setBookingForm] = useState({ petId: '', roomId: '', checkInDate: '', checkOutDate: '', notes: '' });
   const [selectedBookingId, setSelectedBookingId] = useState<string>('');
   const [logForm, setLogForm] = useState({ type: 'NOTE' as 'FEEDING' | 'MEDICINE' | 'NOTE', description: '' });
   const [logs, setLogs] = useState<any[]>([]);
@@ -55,7 +62,12 @@ export default function PetHotelPage() {
         setRooms(roomsResult.rooms.map((r: any) => ({
           id: r.id,
           name: r.name,
+          roomNumber: r.roomNumber ?? null,
+          roomType: r.roomType ?? null,
+          capacity: r.capacity ?? 1,
           status: r.status,
+          cleaningStatus: r.cleaningStatus ?? null,
+          maintenanceStatus: r.maintenanceStatus ?? null,
           occupancy: r.bookings?.length ?? 0,
         })));
       }
@@ -67,9 +79,11 @@ export default function PetHotelPage() {
       if (bookingsResult.success && bookingsResult.bookings) {
         setBookings(bookingsResult.bookings.map((b: any) => ({
           id: b.id,
+          bookingNumber: b.bookingNumber ?? null,
           checkInDate: b.checkInDate ? new Date(b.checkInDate).toISOString() : '',
           checkOutDate: b.checkOutDate ? new Date(b.checkOutDate).toISOString() : '',
           status: b.status,
+          notes: b.notes ?? null,
           pet: { name: b.pet?.name ?? '-', customer: b.pet?.customer ?? null },
           room: b.room ? { name: b.room.name } : null,
         })));
@@ -83,13 +97,22 @@ export default function PetHotelPage() {
 
   async function handleRoomSubmit(event: React.FormEvent) {
     event.preventDefault();
-    const payload = { id: editingId ?? undefined, name: roomForm.name, status: roomForm.status as any };
-    const result = editingId ? await updatePetHotelRoom(payload as any) : await createPetHotelRoom({ name: roomForm.name });
+    const payload = {
+      id: editingId ?? undefined,
+      name: roomForm.name,
+      roomNumber: roomForm.roomNumber || undefined,
+      roomType: roomForm.roomType,
+      capacity: Number(roomForm.capacity),
+      status: roomForm.status as any,
+      cleaningStatus: roomForm.cleaningStatus as any,
+      maintenanceStatus: roomForm.maintenanceStatus as any,
+    };
+    const result = editingId ? await updatePetHotelRoom(payload as any) : await createPetHotelRoom(payload as any);
 
     if (result.success) {
       setMessage(editingId ? 'Kamar diperbarui.' : 'Kamar ditambahkan.');
       setEditingId(null);
-      setRoomForm({ name: '', status: 'AVAILABLE' });
+      setRoomForm({ name: '', roomNumber: '', roomType: 'STANDARD', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' });
       await loadData();
       return;
     }
@@ -114,11 +137,12 @@ export default function PetHotelPage() {
       roomId: bookingForm.roomId || undefined,
       checkInDate: bookingForm.checkInDate,
       checkOutDate: bookingForm.checkOutDate,
+      notes: bookingForm.notes,
     });
 
     if (result.success) {
       setMessage('Reservasi dibuat.');
-      setBookingForm({ petId: '', roomId: '', checkInDate: '', checkOutDate: '' });
+      setBookingForm({ petId: '', roomId: '', checkInDate: '', checkOutDate: '', notes: '' });
       await loadData();
       return;
     }
@@ -181,9 +205,9 @@ export default function PetHotelPage() {
   }
 
   const roomColumns: Array<{ key: keyof RoomRow; header: string; render?: (row: RoomRow) => ReactNode }> = [
-    { key: 'name', header: 'Nama Kamar' },
-    { key: 'status', header: 'Status' },
-    { key: 'occupancy', header: 'Penghuni' },
+    { key: 'name', header: 'Nama Kamar', render: (row) => <div><div className="font-medium text-zinc-900">{row.name}</div><div className="text-xs text-zinc-500">{row.roomNumber ? `No. ${row.roomNumber}` : 'Tanpa nomor'} • {row.roomType ?? 'STANDARD'}</div></div> },
+    { key: 'status', header: 'Status', render: (row) => <span className={`rounded-full px-2 py-1 text-xs font-medium ${row.status === 'AVAILABLE' ? 'bg-emerald-100 text-emerald-700' : row.status === 'OCCUPIED' ? 'bg-amber-100 text-amber-700' : row.status === 'RESERVED' ? 'bg-blue-100 text-blue-700' : 'bg-zinc-100 text-zinc-700'}`}>{row.status}</span> },
+    { key: 'occupancy', header: 'Penghuni', render: (row) => `${row.occupancy}/${row.capacity ?? 1}` },
   ];
 
   const filteredBookings = useMemo(() => {
@@ -195,8 +219,8 @@ export default function PetHotelPage() {
   const bookingColumns: Array<{ key: keyof BookingRow; header: string; render?: (row: BookingRow) => ReactNode }> = [
     { key: 'checkInDate', header: 'Check-in', render: (row) => new Date(row.checkInDate).toLocaleDateString('id-ID') },
     { key: 'checkOutDate', header: 'Check-out', render: (row) => new Date(row.checkOutDate).toLocaleDateString('id-ID') },
-    { key: 'pet', header: 'Hewan', render: (row) => row.pet?.name ?? '-' },
-    { key: 'status', header: 'Status' },
+    { key: 'pet', header: 'Hewan', render: (row) => <div><div className="font-medium text-zinc-900">{row.pet?.name ?? '-'}</div><div className="text-xs text-zinc-500">{row.pet?.customer?.name ?? '-'}</div></div> },
+    { key: 'status', header: 'Status', render: (row) => <span className={`rounded-full px-2 py-1 text-xs font-medium ${row.status === 'BOOKED' ? 'bg-blue-100 text-blue-700' : row.status === 'CHECKED_IN' ? 'bg-emerald-100 text-emerald-700' : row.status === 'CHECKED_OUT' ? 'bg-zinc-100 text-zinc-700' : 'bg-red-100 text-red-700'}`}>{row.status}</span> },
     { key: 'room', header: 'Kamar', render: (row) => row.room?.name ?? '-' },
     { key: 'id', header: 'Aksi', render: (row) => <div className="flex flex-wrap gap-2"><button type="button" onClick={() => void handleCheckIn(row.id)} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">Check-in</button><button type="button" onClick={() => void handleCheckOut(row.id)} className="rounded-lg border border-zinc-200 px-3 py-1 text-xs text-zinc-700">Check-out</button><button type="button" onClick={() => { setSelectedBookingId(row.id); void loadLogs(row.id); }} className="rounded-lg border border-zinc-200 px-3 py-1 text-xs text-zinc-700"><NotebookPen className="mr-1 inline h-3 w-3" />Catatan</button>{row.status === 'BOOKED' ? <button type="button" onClick={() => void handleCancel(row.id)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs text-red-700">Batal</button> : null}</div> },
   ];
@@ -235,22 +259,57 @@ export default function PetHotelPage() {
               Nama Kamar
               <input type="text" value={roomForm.name} onChange={(e) => setRoomForm({ ...roomForm, name: e.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
             </label>
-
-            <label className="block text-sm text-zinc-600">
-              Status
-              <select value={roomForm.status} onChange={(e) => setRoomForm({ ...roomForm, status: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
-                <option value="AVAILABLE">AVAILABLE</option>
-                <option value="OCCUPIED">OCCUPIED</option>
-                <option value="MAINTENANCE">MAINTENANCE</option>
-              </select>
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm text-zinc-600">
+                Nomor Kamar
+                <input type="text" value={roomForm.roomNumber} onChange={(e) => setRoomForm({ ...roomForm, roomNumber: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="block text-sm text-zinc-600">
+                Tipe
+                <input type="text" value={roomForm.roomType} onChange={(e) => setRoomForm({ ...roomForm, roomType: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm text-zinc-600">
+                Kapasitas
+                <input type="number" min="1" max="10" value={roomForm.capacity} onChange={(e) => setRoomForm({ ...roomForm, capacity: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="block text-sm text-zinc-600">
+                Status
+                <select value={roomForm.status} onChange={(e) => setRoomForm({ ...roomForm, status: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+                  <option value="AVAILABLE">AVAILABLE</option>
+                  <option value="RESERVED">RESERVED</option>
+                  <option value="OCCUPIED">OCCUPIED</option>
+                  <option value="MAINTENANCE">MAINTENANCE</option>
+                  <option value="INACTIVE">INACTIVE</option>
+                </select>
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm text-zinc-600">
+                Kebersihan
+                <select value={roomForm.cleaningStatus} onChange={(e) => setRoomForm({ ...roomForm, cleaningStatus: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+                  <option value="CLEAN">CLEAN</option>
+                  <option value="DIRTY">DIRTY</option>
+                  <option value="INSPECTION">INSPECTION</option>
+                </select>
+              </label>
+              <label className="block text-sm text-zinc-600">
+                Perawatan
+                <select value={roomForm.maintenanceStatus} onChange={(e) => setRoomForm({ ...roomForm, maintenanceStatus: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+                  <option value="OPERATIONAL">OPERATIONAL</option>
+                  <option value="NEEDS_REPAIR">NEEDS_REPAIR</option>
+                  <option value="OUT_OF_SERVICE">OUT_OF_SERVICE</option>
+                </select>
+              </label>
+            </div>
 
             <div className="flex flex-wrap gap-2">
               <button type="submit" className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">
                 {editingId ? 'Simpan perubahan' : 'Tambah kamar'}
               </button>
               {editingId ? (
-                <button type="button" onClick={() => { setEditingId(null); setRoomForm({ name: '', status: 'AVAILABLE' }); }} className="rounded-lg border border-zinc-200 px-4 py-2 text-sm text-zinc-700">
+                <button type="button" onClick={() => { setEditingId(null); setRoomForm({ name: '', roomNumber: '', roomType: 'STANDARD', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' }); }} className="rounded-lg border border-zinc-200 px-4 py-2 text-sm text-zinc-700">
                   Batal
                 </button>
               ) : null}
@@ -303,6 +362,10 @@ export default function PetHotelPage() {
                   <input type="date" value={bookingForm.checkOutDate} onChange={(e) => setBookingForm({ ...bookingForm, checkOutDate: e.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
                 </label>
               </div>
+              <label className="block text-sm text-zinc-600">
+                Catatan
+                <textarea value={bookingForm.notes} onChange={(e) => setBookingForm({ ...bookingForm, notes: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" rows={3} />
+              </label>
               <button type="submit" className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white">Buat reservasi</button>
             </form>
 

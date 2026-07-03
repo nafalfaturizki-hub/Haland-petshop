@@ -20,6 +20,18 @@ const loginSchema = z.object({
   pin: z.string().trim().min(1),
 });
 
+async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
+  await prisma.auditLog.create({
+    data: {
+      userId,
+      action,
+      entity,
+      entityId,
+      description,
+    },
+  });
+}
+
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET ?? 'change-me-in-production',
   session: {
@@ -49,12 +61,14 @@ export const authOptions: NextAuthOptions = {
           }
 
           if (!user.isActive) {
+            await createAuditLog(user.id, 'LOGIN', 'User', user.id, 'Login ditolak karena akun nonaktif');
             return null;
           }
 
           const now = new Date();
           if (user.isLocked) {
             if (user.lockedUntil && user.lockedUntil > now) {
+              await createAuditLog(user.id, 'LOGIN', 'User', user.id, 'Login ditolak karena akun terkunci');
               return null;
             }
 
@@ -72,6 +86,7 @@ export const authOptions: NextAuthOptions = {
           try {
             isValidPin = await bcrypt.compare(parsed.data.pin, user.pinHash);
           } catch {
+            await createAuditLog(user.id, 'LOGIN', 'User', user.id, 'Login gagal karena kesalahan sistem');
             return null;
           }
 
@@ -88,6 +103,7 @@ export const authOptions: NextAuthOptions = {
               },
             });
 
+            await createAuditLog(user.id, 'LOGIN', 'User', user.id, 'Login gagal: PIN salah');
             return null;
           }
 
@@ -99,6 +115,8 @@ export const authOptions: NextAuthOptions = {
             lockedUntil: null,
           },
         });
+
+        await createAuditLog(user.id, 'LOGIN', 'User', user.id, 'Login berhasil');
 
         return {
           id: user.id,
@@ -115,6 +133,20 @@ export const authOptions: NextAuthOptions = {
   ],
   pages: {
     signIn: '/login',
+  },
+  events: {
+    async signIn(message) {
+      const userId = (message.user as { id?: string } | undefined)?.id ?? (message.user as { email?: string } | undefined)?.email;
+      if (userId) {
+        await createAuditLog(String(userId), 'LOGIN', 'User', String(userId), 'Sesi login dibuat');
+      }
+    },
+    async signOut(message) {
+      const userId = (message.token as { sub?: string } | undefined)?.sub;
+      if (userId) {
+        await createAuditLog(userId, 'LOGOUT', 'User', userId, 'Sesi logout selesai');
+      }
+    },
   },
   callbacks: {
     async jwt({ token, user }: any) {
