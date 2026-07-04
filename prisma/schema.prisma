@@ -303,6 +303,7 @@ model Product {
   category       ProductCategory? @relation(fields: [categoryId], references: [id])
   supplier       Supplier?        @relation(fields: [supplierId], references: [id])
   stockMovements StockMovement[]
+  invoiceItems   InvoiceItem[]
 }
 
 model ProductCategory {
@@ -357,13 +358,15 @@ model Invoice {
 model InvoiceItem {
   id          String          @id @default(cuid())
   invoiceId   String
+  productId   String?
   type        InvoiceItemType
   description String
   qty         Int             @default(1)
   price       Float           @default(0)
   subtotal    Float           @default(0)
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  invoice Invoice  @relation(fields: [invoiceId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
 }
 
 model Payment {

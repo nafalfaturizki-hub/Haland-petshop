@@ -98,6 +98,10 @@ export async function getSettingsData() {
     return { success: false, message: 'Tidak terautentikasi.', data: null };
   }
 
+  if (!isOwner(actorRole)) {
+    return { success: false, message: 'Hanya Owner yang bisa mengakses pengaturan ini.', data: null };
+  }
+
   const [settings, auditLogs] = await Promise.all([
     prisma.settings.findFirst(),
     prisma.auditLog.findMany({

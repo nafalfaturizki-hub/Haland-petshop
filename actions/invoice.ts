@@ -12,6 +12,7 @@ const invoiceItemSchema = z.object({
   description: z.string().trim().min(1, 'Deskripsi item wajib diisi.'),
   qty: z.coerce.number().int().min(1, 'Kuantitas minimal 1.'),
   price: z.coerce.number().min(0, 'Harga tidak boleh negatif.'),
+  productId: z.string().trim().optional().or(z.literal('')),
 });
 
 const createInvoiceSchema = z.object({
@@ -187,7 +188,47 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
     }
   }
 
-  const subtotal = roundCurrency(parsed.data.items.reduce((sum, item) => sum + item.qty * item.price, 0));
+  const productIds = parsed.data.items
+    .filter((item) => item.type === 'PRODUK' && item.productId)
+    .map((item) => item.productId as string);
+
+  const products = await Promise.all(productIds.map((productId) => prisma.product.findUnique({ where: { id: productId } })));
+  const productsById = new Map(
+    products.filter((product): product is Exclude<typeof product, null> => Boolean(product)).map((product) => [product.id, product]),
+  );
+
+  const invoiceItems = parsed.data.items.map((item) => {
+    if (item.type === 'PRODUK') {
+      if (!item.productId) {
+        throw new Error(`Produk harus dipilih untuk item PRODUK: ${item.description}.`);
+      }
+
+      const product = productsById.get(item.productId);
+      if (!product) {
+        throw new Error(`Produk untuk item ${item.description} tidak ditemukan.`);
+      }
+
+      return {
+        type: item.type,
+        description: item.description,
+        qty: item.qty,
+        price: product.sellPrice,
+        subtotal: roundCurrency(item.qty * product.sellPrice),
+        productId: product.id,
+      };
+    }
+
+    return {
+      type: item.type,
+      description: item.description,
+      qty: item.qty,
+      price: item.price,
+      subtotal: roundCurrency(item.qty * item.price),
+      productId: item.productId || null,
+    };
+  });
+
+  const subtotal = roundCurrency(invoiceItems.reduce((sum, item) => sum + item.subtotal, 0));
   const discountAmount = roundCurrency(Math.min(parsed.data.discountAmount ?? 0, subtotal));
   const taxRate = roundCurrency(parsed.data.taxRate ?? 0);
   const taxableAmount = roundCurrency(Math.max(0, subtotal - discountAmount));
@@ -226,12 +267,13 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
         notes: normalizeOptionalText(parsed.data.notes),
         createdById: actorId,
         items: {
-          create: parsed.data.items.map((item) => ({
+          create: invoiceItems.map((item) => ({
             type: item.type,
             description: item.description,
             qty: item.qty,
             price: item.price,
-            subtotal: roundCurrency(item.qty * item.price),
+            subtotal: item.subtotal,
+            productId: item.productId,
           })),
         },
         ...(initialPaymentAmount > 0

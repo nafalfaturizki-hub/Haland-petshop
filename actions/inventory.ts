@@ -83,33 +83,34 @@ export async function recordStockMovement(input: z.infer<typeof stockMovementSch
     return { success: false, message: 'Produk tidak aktif untuk perubahan stok.' };
   }
 
-  let newStock = product.stock;
   let movementType: 'IN' | 'OUT' | 'ADJUSTMENT' | 'RETURN' | 'DAMAGED' | 'EXPIRED' | 'CORRECTION' = parsed.data.type;
 
-  switch (movementType) {
-    case 'IN':
-    case 'RETURN':
-      newStock += parsed.data.quantity;
-      break;
-    case 'ADJUSTMENT':
-      newStock = parsed.data.quantity;
-      break;
-    case 'OUT':
-    case 'DAMAGED':
-    case 'EXPIRED':
-    case 'CORRECTION':
-      if (product.stock < parsed.data.quantity) {
-        return { success: false, message: 'Stok tidak mencukupi untuk pergerakan ini.' };
-      }
-      newStock -= parsed.data.quantity;
-      break;
-  }
-
   const movement = await prisma.$transaction(async (tx) => {
-    const updatedProduct = await tx.product.update({
-      where: { id: parsed.data.productId },
-      data: { stock: newStock },
-    });
+    let updatedProduct;
+
+    if (movementType === 'IN' || movementType === 'RETURN') {
+      await tx.product.update({
+        where: { id: parsed.data.productId },
+        data: { stock: { increment: parsed.data.quantity } },
+      });
+      updatedProduct = await tx.product.findUnique({ where: { id: parsed.data.productId } });
+    } else if (movementType === 'ADJUSTMENT') {
+      await tx.product.update({
+        where: { id: parsed.data.productId },
+        data: { stock: parsed.data.quantity },
+      });
+      updatedProduct = await tx.product.findUnique({ where: { id: parsed.data.productId } });
+    } else {
+      const result = await tx.product.updateMany({
+        where: { id: parsed.data.productId, stock: { gte: parsed.data.quantity } },
+        data: { stock: { decrement: parsed.data.quantity } },
+      });
+
+      if (result.count === 0) {
+        throw new Error('Stok produk tidak mencukupi atau berubah, transaksi dibatalkan.');
+      }
+      updatedProduct = await tx.product.findUnique({ where: { id: parsed.data.productId } });
+    }
 
     const createdMovement = await tx.stockMovement.create({
       data: {
@@ -120,14 +121,14 @@ export async function recordStockMovement(input: z.infer<typeof stockMovementSch
       },
     });
 
-    await createAuditLog(actorId, 'STOCK_MOVEMENT', 'Product', updatedProduct.id, `${parsed.data.type} stok ${createdMovement.quantity} unit`);
+    await createAuditLog(actorId, 'STOCK_MOVEMENT', 'Product', updatedProduct?.id ?? parsed.data.productId, `${parsed.data.type} stok ${createdMovement.quantity} unit`);
 
     return { updatedProduct, createdMovement };
   });
 
   revalidatePath('/petshop/inventory');
   revalidatePath('/petshop/products');
-  return { success: true, newStock, movement };
+  return { success: true, movement };
 }
 
 export async function listStockMovements(productId: string) {

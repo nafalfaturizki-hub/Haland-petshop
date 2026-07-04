@@ -16,6 +16,10 @@ export default async function StaffLayout({ children }: { children: React.ReactN
     redirect('/portal');
   }
 
+  if ((session.user as { mustChangePin?: boolean }).mustChangePin) {
+    redirect('/change-pin');
+  }
+
   return (
     <div className="min-h-screen bg-white text-zinc-900">
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col lg:flex-row">

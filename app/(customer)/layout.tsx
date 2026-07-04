@@ -16,6 +16,10 @@ export default async function CustomerLayout({ children }: { children: React.Rea
     redirect('/dashboard');
   }
 
+  if ((session.user as { mustChangePin?: boolean }).mustChangePin) {
+    redirect('/change-pin');
+  }
+
   return (
     <div className="min-h-screen bg-[#fafafa] text-zinc-900">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col">

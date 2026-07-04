@@ -21,7 +21,7 @@ const CUSTOMER_PREFIXES = ['/portal'];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const publicRoutes = ['/login', '/api/auth', '/_next', '/favicon.ico'];
+  const publicRoutes = ['/login', '/change-pin', '/api/auth', '/_next', '/favicon.ico'];
 
   if (publicRoutes.some((route) => pathname.startsWith(route))) {
     return NextResponse.next();

@@ -113,27 +113,17 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
   }
 
   const items = parsed.data.items;
-  const subtotal = roundCurrency(items.reduce((sum, item) => sum + item.qty * item.price, 0));
-  const taxRate = parsed.data.taxRate ?? 0;
-  const totals = calculatePosTotals(subtotal, parsed.data.discountAmount ?? 0, taxRate);
-
-  if (parsed.data.paymentAmount < totals.totalAmount) {
-    return { success: false, message: 'Jumlah pembayaran kurang dari total transaksi.' };
-  }
 
   const invoiceNumber = `INV-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
-  const status = getPaymentStatus(parsed.data.paymentAmount, totals.totalAmount);
 
   try {
-    const invoice = await prisma.$transaction(async (tx) => {
+    const invoiceResult = await prisma.$transaction(async (tx) => {
       const productLookups = await Promise.all(
         items.map((item) => tx.product.findUnique({ where: { id: item.productId } })),
       );
 
-      for (let index = 0; index < productLookups.length; index += 1) {
+      const validatedItems = items.map((item, index) => {
         const product = productLookups[index];
-        const item = items[index];
-
         if (!product) {
           throw new Error(`Produk ${item.description} tidak ditemukan.`);
         }
@@ -141,7 +131,29 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
         if (product.stock < item.qty) {
           throw new Error(`Stok produk ${product.name} tidak cukup.`);
         }
+
+        if (roundCurrency(item.price) !== roundCurrency(product.sellPrice)) {
+          throw new Error(`Harga produk ${product.name} sudah berubah. Segarkan halaman dan coba lagi.`);
+        }
+
+        return {
+          product,
+          qty: item.qty,
+          description: item.description,
+          price: product.sellPrice,
+          subtotal: roundCurrency(item.qty * product.sellPrice),
+        };
+      });
+
+      const subtotal = roundCurrency(validatedItems.reduce((sum, item) => sum + item.subtotal, 0));
+      const taxRate = parsed.data.taxRate ?? 0;
+      const totals = calculatePosTotals(subtotal, parsed.data.discountAmount ?? 0, taxRate);
+
+      if (parsed.data.paymentAmount < totals.totalAmount) {
+        throw new Error('Jumlah pembayaran kurang dari total transaksi.');
       }
+
+      const status = getPaymentStatus(parsed.data.paymentAmount, totals.totalAmount);
 
       const createdInvoice = await tx.invoice.create({
         data: {
@@ -154,12 +166,13 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
           taxAmount: totals.taxAmount,
           totalAmount: totals.totalAmount,
           items: {
-            create: items.map((item) => ({
+            create: validatedItems.map((item) => ({
               type: 'PRODUK',
               description: item.description,
               qty: item.qty,
               price: item.price,
-              subtotal: roundCurrency(item.qty * item.price),
+              subtotal: item.subtotal,
+              productId: item.product.id,
             })),
           },
           payments: {
@@ -176,20 +189,19 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
         },
       });
 
-      for (const item of items) {
-        const product = await tx.product.findUnique({ where: { id: item.productId } });
-        if (!product) {
-          throw new Error(`Produk ${item.description} tidak ditemukan.`);
-        }
-
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { stock: product.stock - item.qty },
+      for (const item of validatedItems) {
+        const result = await tx.product.updateMany({
+          where: { id: item.product.id, stock: { gte: item.qty } },
+          data: { stock: { decrement: item.qty } },
         });
+
+        if (result.count === 0) {
+          throw new Error('Stok produk tidak mencukupi atau berubah, transaksi dibatalkan.');
+        }
 
         await tx.stockMovement.create({
           data: {
-            productId: item.productId,
+            productId: item.product.id,
             type: 'OUT',
             quantity: item.qty,
             note: `Penjualan POS - ${invoiceNumber}`,
@@ -207,8 +219,10 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
         },
       });
 
-      return createdInvoice;
+      return { invoice: createdInvoice, totals };
     });
+
+    const { invoice, totals } = invoiceResult;
 
     const customerUser = await prisma.customer.findUnique({ where: { id: parsed.data.customerId }, select: { userId: true } });
     await createNotification({
