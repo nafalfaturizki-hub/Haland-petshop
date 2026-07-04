@@ -22,10 +22,5 @@
     }
   ],
   "buildCommand": "npm run build",
-  "devCommand": "npm run dev",
-  "functions": {
-    "api/**/*.ts": {
-      "maxDuration": 60
-    }
-  }
+  "devCommand": "npm run dev"
 }
