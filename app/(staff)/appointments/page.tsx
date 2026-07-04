@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { CalendarPlus, CheckCircle2, CircleSlash, PencilLine } from 'lucide-react';
 import { cancelAppointment, createAppointment, listAppointmentLookups, listAppointments, updateAppointment } from '@/actions/appointment';
 import { DataTable } from '@/components/shared/data-table';
@@ -21,7 +21,7 @@ type LookupOption = {
   id: string;
   name: string;
   species?: string;
-  customer?: { name: string };
+  customer?: { id: string; name: string };
 };
 
 export default function AppointmentsPage() {
@@ -39,6 +39,14 @@ export default function AppointmentsPage() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  const availablePets = useMemo(() => {
+    if (!form.customerId) {
+      return pets;
+    }
+
+    return pets.filter((pet) => pet.customer?.id === form.customerId);
+  }, [pets, form.customerId]);
 
   async function loadData() {
     setLoading(true);
@@ -173,15 +181,45 @@ export default function AppointmentsPage() {
 
           <label className="block text-sm text-zinc-600">
             Hewan
-            <select value={form.petId} onChange={(event) => setForm({ ...form, petId: event.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+            <select
+              value={form.petId}
+              onChange={(event) => {
+                const petId = event.target.value;
+                const pet = pets.find((item) => item.id === petId);
+                setForm((current) => ({
+                  ...current,
+                  petId,
+                  customerId: pet?.customer?.id ?? current.customerId,
+                }));
+              }}
+              required
+              className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
+            >
               <option value="">Pilih hewan</option>
-              {pets.map((pet) => <option key={pet.id} value={pet.id}>{pet.name} — {pet.species}</option>)}
+              {availablePets.map((pet) => (
+                <option key={pet.id} value={pet.id}>
+                  {pet.name} — {pet.species}{pet.customer ? ` (${pet.customer.name})` : ''}
+                </option>
+              ))}
             </select>
           </label>
 
           <label className="block text-sm text-zinc-600">
             Pelanggan
-            <select value={form.customerId} onChange={(event) => setForm({ ...form, customerId: event.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+            <select
+              value={form.customerId}
+              onChange={(event) => {
+                const customerId = event.target.value;
+                const selectedPet = pets.find((pet) => pet.id === form.petId);
+                setForm((current) => ({
+                  ...current,
+                  customerId,
+                  petId: selectedPet?.customer?.id !== customerId ? '' : current.petId,
+                }));
+              }}
+              required
+              className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
+            >
               <option value="">Pilih pelanggan</option>
               {customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
             </select>

@@ -15,6 +15,7 @@ const staffMenu = [
   { href: '/pets', label: 'Hewan', icon: Stethoscope, module: 'pets' as const },
   { href: '/appointments', label: 'Janji Temu', icon: CalendarDays, module: 'appointments' as const },
   { href: '/medical-records', label: 'Rekam Medis', icon: ScrollText, module: 'medical-records' as const },
+  { href: '/procedures', label: 'Master Tindakan', icon: ScrollText, module: 'procedures' as const },
   { href: '/pet-hotel', label: 'Pet Hotel', icon: Hotel, module: 'pet-hotel' as const },
   { href: '/petshop/products', label: 'Petshop', icon: ShoppingBag, module: 'petshop' as const },
   { href: '/pos', label: 'POS', icon: ReceiptText, module: 'pos' as const },

@@ -5,12 +5,15 @@ import { CreditCard, FileIcon, Printer, Plus, Trash2, Wallet } from 'lucide-reac
 import { DataTable } from '@/components/shared/data-table';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cancelInvoice, createInvoice, getInvoiceLookups, listInvoices, recordInvoicePayment } from '@/actions/invoice';
+import { listProducts } from '@/actions/product';
 
 type InvoiceItemForm = {
   type: 'KONSULTASI' | 'TINDAKAN' | 'OBAT' | 'PET_HOTEL' | 'PRODUK';
   description: string;
   qty: string;
   price: string;
+  productId: string;
+  procedureId: string;
 };
 
 type InvoiceRow = {
@@ -30,22 +33,32 @@ type InvoiceRow = {
 };
 
 type CustomerOption = { id: string; name: string };
+type ProductOption = { id: string; name: string; sellPrice: number; stock: number };
+type ProcedureOption = { id: string; code: string | null; name: string; price: number };
+type AppointmentOption = { id: string; pet: { id: string; name: string }; customer: { id: string; name: string } };
+type MedicalRecordOption = { id: string; recordNumber: string | null; pet: { id: string; name: string }; customer: { id: string; name: string } };
 
 export default function BillingPage() {
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [procedures, setProcedures] = useState<ProcedureOption[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentOption[]>([]);
+  const [medicalRecords, setMedicalRecords] = useState<MedicalRecordOption[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [message, setMessage] = useState('');
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     customerId: '',
+    appointmentId: '',
+    medicalRecordId: '',
     discountAmount: '0',
     taxRate: '0',
     notes: '',
     initialPaymentAmount: '0',
     initialPaymentMethod: 'CASH' as 'CASH' | 'NON_CASH',
   });
-  const [itemForm, setItemForm] = useState<InvoiceItemForm>({ type: 'KONSULTASI', description: '', qty: '1', price: '0' });
+  const [itemForm, setItemForm] = useState<InvoiceItemForm>({ type: 'KONSULTASI', description: '', qty: '1', price: '0', productId: '', procedureId: '' });
   const [items, setItems] = useState<InvoiceItemForm[]>([]);
   const [paymentForm, setPaymentForm] = useState({ amount: '0', method: 'CASH' as 'CASH' | 'NON_CASH' });
 
@@ -54,9 +67,15 @@ export default function BillingPage() {
   }, []);
 
   async function loadData() {
-    const [lookupResult, invoicesResult] = await Promise.all([getInvoiceLookups(), listInvoices()]);
-    if (lookupResult.success) setCustomers(lookupResult.customers ?? []);
+    const [lookupResult, invoicesResult, productsResult] = await Promise.all([getInvoiceLookups(), listInvoices(), listProducts()]);
+    if (lookupResult.success) {
+      setCustomers(lookupResult.customers ?? []);
+      setAppointments(lookupResult.appointments ?? []);
+      setMedicalRecords(lookupResult.medicalRecords ?? []);
+      setProcedures(lookupResult.procedures ?? []);
+    }
     if (invoicesResult.success) setInvoices((invoicesResult.invoices ?? []).map((inv: any) => ({ ...inv, date: (inv.date as Date).toISOString() })));
+    if (productsResult.success) setProducts((productsResult.products ?? []).map((product: any) => ({ id: product.id, name: product.name, sellPrice: Number(product.sellPrice ?? 0), stock: Number(product.stock ?? 0) })));
   }
 
   const selectedInvoice = useMemo(() => invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null, [invoices, selectedInvoiceId]);
@@ -66,13 +85,32 @@ export default function BillingPage() {
       setMessage('Deskripsi item harus diisi.');
       return;
     }
-    if (Number(itemForm.qty) <= 0 || Number(itemForm.price) < 0) {
+
+    if (itemForm.type === 'PRODUK' && !itemForm.productId) {
+      setMessage('Pilih produk untuk item PRODUK.');
+      return;
+    }
+
+    if (itemForm.type === 'TINDAKAN' && !itemForm.procedureId) {
+      setMessage('Pilih prosedur untuk item TINDAKAN.');
+      return;
+    }
+
+    const selectedProduct = products.find((product) => product.id === itemForm.productId);
+    const selectedProcedure = procedures.find((procedure) => procedure.id === itemForm.procedureId);
+    const normalizedPrice = itemForm.type === 'PRODUK' && selectedProduct
+      ? selectedProduct.sellPrice
+      : itemForm.type === 'TINDAKAN' && selectedProcedure
+      ? selectedProcedure.price
+      : Number(itemForm.price);
+
+    if (Number(itemForm.qty) <= 0 || normalizedPrice < 0) {
       setMessage('Jumlah dan harga harus valid.');
       return;
     }
 
-    setItems((current) => [...current, itemForm]);
-    setItemForm({ ...itemForm, description: '', qty: '1', price: '0' });
+    setItems((current) => [...current, { ...itemForm, price: String(normalizedPrice) }]);
+    setItemForm({ type: itemForm.type, description: '', qty: '1', price: '0', productId: '', procedureId: '' });
     setMessage('');
   }
 
@@ -101,11 +139,15 @@ export default function BillingPage() {
     setSubmitting(true);
     const result = await createInvoice({
       customerId: form.customerId,
+      appointmentId: form.appointmentId || undefined,
+      medicalRecordId: form.medicalRecordId || undefined,
       items: items.map((item) => ({
         type: item.type,
         description: item.description,
         qty: Number(item.qty),
         price: Number(item.price),
+        productId: item.type === 'PRODUK' ? item.productId || undefined : undefined,
+        procedureId: item.type === 'TINDAKAN' ? item.procedureId || undefined : undefined,
       })),
       discountAmount: discount,
       taxRate,
@@ -122,7 +164,8 @@ export default function BillingPage() {
 
     setMessage('Invoice berhasil dibuat.');
     setItems([]);
-    setForm({ customerId: '', discountAmount: '0', taxRate: '0', notes: '', initialPaymentAmount: '0', initialPaymentMethod: 'CASH' });
+    setItemForm({ type: 'KONSULTASI', description: '', qty: '1', price: '0', productId: '', procedureId: '' });
+    setForm({ customerId: '', appointmentId: '', medicalRecordId: '', discountAmount: '0', taxRate: '0', notes: '', initialPaymentAmount: '0', initialPaymentMethod: 'CASH' });
     await loadData();
     setSubmitting(false);
   }
@@ -214,7 +257,21 @@ export default function BillingPage() {
           <form onSubmit={handleCreateInvoice} className="space-y-4">
             <label className="block text-sm text-zinc-600">
               Pelanggan
-              <select value={form.customerId} onChange={(event) => setForm({ ...form, customerId: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+              <select
+                value={form.customerId}
+                onChange={(event) => {
+                  const customerId = event.target.value;
+                  const appointment = appointments.find((item) => item.id === form.appointmentId);
+                  const medicalRecord = medicalRecords.find((item) => item.id === form.medicalRecordId);
+                  setForm((current) => ({
+                    ...current,
+                    customerId,
+                    appointmentId: appointment?.customer.id !== customerId ? '' : current.appointmentId,
+                    medicalRecordId: medicalRecord?.customer.id !== customerId ? '' : current.medicalRecordId,
+                  }));
+                }}
+                className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
+              >
                 <option value="">Pilih pelanggan</option>
                 {customers.map((customer) => (
                   <option key={customer.id} value={customer.id}>{customer.name}</option>
@@ -222,10 +279,73 @@ export default function BillingPage() {
               </select>
             </label>
 
+            <label className="block text-sm text-zinc-600">
+              Appointment (opsional)
+              <select
+                value={form.appointmentId}
+                onChange={(event) => {
+                  const appointmentId = event.target.value;
+                  const appointment = appointments.find((item) => item.id === appointmentId);
+                  setForm((current) => ({
+                    ...current,
+                    appointmentId,
+                    medicalRecordId: appointmentId ? '' : current.medicalRecordId,
+                    customerId: appointment?.customer.id ?? current.customerId,
+                  }));
+                }}
+                className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
+              >
+                <option value="">Pilih appointment</option>
+                {appointments.map((appointment) => (
+                  <option key={appointment.id} value={appointment.id}>
+                    {appointment.pet.name} — {appointment.customer.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block text-sm text-zinc-600">
+              Rekam medis (opsional)
+              <select
+                value={form.medicalRecordId}
+                onChange={(event) => {
+                  const medicalRecordId = event.target.value;
+                  const medicalRecord = medicalRecords.find((item) => item.id === medicalRecordId);
+                  setForm((current) => ({
+                    ...current,
+                    medicalRecordId,
+                    appointmentId: medicalRecordId ? '' : current.appointmentId,
+                    customerId: medicalRecord?.customer.id ?? current.customerId,
+                  }));
+                }}
+                className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
+              >
+                <option value="">Pilih rekam medis</option>
+                {medicalRecords.map((record) => (
+                  <option key={record.id} value={record.id}>
+                    {record.recordNumber ?? record.pet.name} — {record.customer.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
             <div className="grid gap-3 md:grid-cols-3">
               <label className="block text-sm text-zinc-600">
                 Jenis item
-                <select value={itemForm.type} onChange={(event) => setItemForm({ ...itemForm, type: event.target.value as InvoiceItemForm['type'] })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+                <select
+                  value={itemForm.type}
+                  onChange={(event) => {
+                    const type = event.target.value as InvoiceItemForm['type'];
+                    setItemForm({
+                      ...itemForm,
+                      type,
+                      productId: type === 'PRODUK' ? itemForm.productId : '',
+                      procedureId: type === 'TINDAKAN' ? itemForm.procedureId : '',
+                      price: '0',
+                    });
+                  }}
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
+                >
                   <option value="KONSULTASI">KONSULTASI</option>
                   <option value="TINDAKAN">TINDAKAN</option>
                   <option value="OBAT">OBAT</option>
@@ -241,9 +361,57 @@ export default function BillingPage() {
 
               <label className="block text-sm text-zinc-600">
                 Harga
-                <input type="number" min="0" step="0.01" value={itemForm.price} onChange={(event) => setItemForm({ ...itemForm, price: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={itemForm.type === 'PRODUK' ? (itemForm.productId ? (products.find((product) => product.id === itemForm.productId)?.sellPrice ?? 0) : 0) : itemForm.type === 'TINDAKAN' ? (itemForm.procedureId ? (procedures.find((procedure) => procedure.id === itemForm.procedureId)?.price ?? 0) : 0) : itemForm.price}
+                  onChange={(event) => setItemForm({ ...itemForm, price: event.target.value })}
+                  disabled={itemForm.type === 'PRODUK' || itemForm.type === 'TINDAKAN'}
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 disabled:bg-zinc-100"
+                />
               </label>
             </div>
+
+            {itemForm.type === 'PRODUK' ? (
+              <label className="block text-sm text-zinc-600">
+                Produk
+                <select value={itemForm.productId} onChange={(event) => {
+                  const selectedProduct = products.find((product) => product.id === event.target.value);
+                  setItemForm({
+                    ...itemForm,
+                    productId: event.target.value,
+                    description: selectedProduct ? selectedProduct.name : itemForm.description,
+                    price: selectedProduct ? String(selectedProduct.sellPrice) : '0',
+                  });
+                }} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+                  <option value="">Pilih produk</option>
+                  {products.map((product) => (
+                    <option key={product.id} value={product.id}>{product.name} — {formatCurrency(product.sellPrice)}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+
+            {itemForm.type === 'TINDAKAN' ? (
+              <label className="block text-sm text-zinc-600">
+                Prosedur
+                <select value={itemForm.procedureId} onChange={(event) => {
+                  const selectedProcedure = procedures.find((procedure) => procedure.id === event.target.value);
+                  setItemForm({
+                    ...itemForm,
+                    procedureId: event.target.value,
+                    description: selectedProcedure ? selectedProcedure.name : itemForm.description,
+                    price: selectedProcedure ? String(selectedProcedure.price) : '0',
+                  });
+                }} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
+                  <option value="">Pilih prosedur</option>
+                  {procedures.map((procedure) => (
+                    <option key={procedure.id} value={procedure.id}>{procedure.name} — {formatCurrency(procedure.price)}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
 
             <label className="block text-sm text-zinc-600">
               Deskripsi

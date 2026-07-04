@@ -8,6 +8,7 @@ export type ModuleName =
   | 'pets'
   | 'appointments'
   | 'medical-records'
+  | 'procedures'
   | 'pet-hotel'
   | 'petshop'
   | 'pos'
@@ -66,7 +67,7 @@ function isModuleAccessibleByRole(role: Role, module: ModuleName) {
     case 'ADMIN_KLINIK':
       return module !== 'settings';
     case 'DOKTER':
-      return ['dashboard', 'customers', 'pets', 'appointments', 'medical-records', 'pet-hotel', 'reports', 'profile'].includes(module);
+      return ['dashboard', 'customers', 'pets', 'appointments', 'medical-records', 'procedures', 'pet-hotel', 'reports', 'profile'].includes(module);
     case 'CUSTOMER':
       return ['profile', 'customer-portal'].includes(module);
     default:

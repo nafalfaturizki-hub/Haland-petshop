@@ -13,6 +13,7 @@ const invoiceItemSchema = z.object({
   qty: z.coerce.number().int().min(1, 'Kuantitas minimal 1.'),
   price: z.coerce.number().min(0, 'Harga tidak boleh negatif.'),
   productId: z.string().trim().optional().or(z.literal('')),
+  procedureId: z.string().trim().optional().or(z.literal('')),
 });
 
 const createInvoiceSchema = z.object({
@@ -87,14 +88,32 @@ export async function getInvoiceLookups() {
     return { success: false, message: 'Anda tidak berwenang mengakses data ini.' };
   }
 
-  const [customers, appointments, medicalRecords, doctors] = await Promise.all([
+  const [customers, appointments, medicalRecords, doctors, procedures] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } }),
-    prisma.appointment.findMany({ orderBy: { date: 'desc' }, select: { id: true, date: true, pet: { select: { name: true } }, customer: { select: { name: true } } } }),
-    prisma.medicalRecord.findMany({ orderBy: { date: 'desc' }, select: { id: true, recordNumber: true, date: true, pet: { select: { name: true } }, customer: { select: { name: true } } } }),
+    prisma.appointment.findMany({
+      orderBy: { date: 'desc' },
+      select: {
+        id: true,
+        date: true,
+        pet: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.medicalRecord.findMany({
+      orderBy: { date: 'desc' },
+      select: {
+        id: true,
+        recordNumber: true,
+        date: true,
+        pet: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true } },
+      },
+    }),
     prisma.user.findMany({ where: { role: 'DOKTER' }, orderBy: { name: 'asc' }, select: { id: true, name: true } }),
+    prisma.procedure.findMany({ orderBy: { name: 'asc' }, select: { id: true, code: true, name: true, price: true } }),
   ]);
 
-  return { success: true, customers, appointments, medicalRecords, doctors };
+  return { success: true, customers, appointments, medicalRecords, doctors, procedures };
 }
 
 export async function listInvoices() {
@@ -192,9 +211,21 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
     .filter((item) => item.type === 'PRODUK' && item.productId)
     .map((item) => item.productId as string);
 
-  const products = await Promise.all(productIds.map((productId) => prisma.product.findUnique({ where: { id: productId } })));
+  const procedureIds = parsed.data.items
+    .filter((item) => item.type === 'TINDAKAN' && item.procedureId)
+    .map((item) => item.procedureId as string);
+
+  const [products, procedures] = await Promise.all([
+    Promise.all(productIds.map((productId) => prisma.product.findUnique({ where: { id: productId } }))),
+    Promise.all(procedureIds.map((procedureId) => prisma.procedure.findUnique({ where: { id: procedureId } }))),
+  ]);
+
   const productsById = new Map(
     products.filter((product): product is Exclude<typeof product, null> => Boolean(product)).map((product) => [product.id, product]),
+  );
+
+  const proceduresById = new Map(
+    procedures.filter((procedure): procedure is Exclude<typeof procedure, null> => Boolean(procedure)).map((procedure) => [procedure.id, procedure]),
   );
 
   const invoiceItems = parsed.data.items.map((item) => {
@@ -208,13 +239,35 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
         throw new Error(`Produk untuk item ${item.description} tidak ditemukan.`);
       }
 
+      const price = roundCurrency(product.sellPrice);
+
       return {
         type: item.type,
-        description: item.description,
+        description: item.description || product.name,
         qty: item.qty,
-        price: product.sellPrice,
-        subtotal: roundCurrency(item.qty * product.sellPrice),
+        price,
+        subtotal: roundCurrency(item.qty * price),
         productId: product.id,
+        procedureId: null,
+      };
+    }
+
+    if (item.type === 'TINDAKAN' && item.procedureId) {
+      const procedure = proceduresById.get(item.procedureId);
+      if (!procedure) {
+        throw new Error(`Tindakan untuk item ${item.description} tidak ditemukan.`);
+      }
+
+      const price = roundCurrency(procedure.price);
+
+      return {
+        type: item.type,
+        description: item.description || procedure.name,
+        qty: item.qty,
+        price,
+        subtotal: roundCurrency(item.qty * price),
+        productId: null,
+        procedureId: procedure.id,
       };
     }
 
@@ -222,9 +275,10 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
       type: item.type,
       description: item.description,
       qty: item.qty,
-      price: item.price,
+      price: roundCurrency(item.price),
       subtotal: roundCurrency(item.qty * item.price),
       productId: item.productId || null,
+      procedureId: null,
     };
   });
 
@@ -274,6 +328,7 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
             price: item.price,
             subtotal: item.subtotal,
             productId: item.productId,
+            procedureId: item.procedureId,
           })),
         },
         ...(initialPaymentAmount > 0

@@ -75,7 +75,7 @@ export default function PetHotelPage() {
         setPets(petsResult.pets as PetOption[]);
       }
     } else {
-      const [bookingsResult, petsResult] = await Promise.all([listPetHotelBookings(), listPetHotelPets()]);
+      const [bookingsResult, petsResult, roomsResult] = await Promise.all([listPetHotelBookings(), listPetHotelPets(), listPetHotelRooms()]);
       if (bookingsResult.success && bookingsResult.bookings) {
         setBookings(bookingsResult.bookings.map((b: any) => ({
           id: b.id,
@@ -86,6 +86,19 @@ export default function PetHotelPage() {
           notes: b.notes ?? null,
           pet: { name: b.pet?.name ?? '-', customer: b.pet?.customer ?? null },
           room: b.room ? { name: b.room.name } : null,
+        })));
+      }
+      if (roomsResult.success && roomsResult.rooms) {
+        setRooms(roomsResult.rooms.map((r: any) => ({
+          id: r.id,
+          name: r.name,
+          roomNumber: r.roomNumber ?? null,
+          roomType: r.roomType ?? null,
+          capacity: r.capacity ?? 1,
+          status: r.status,
+          cleaningStatus: r.cleaningStatus ?? null,
+          maintenanceStatus: r.maintenanceStatus ?? null,
+          occupancy: r.bookings?.length ?? 0,
         })));
       }
       if (petsResult.success && petsResult.pets) {
