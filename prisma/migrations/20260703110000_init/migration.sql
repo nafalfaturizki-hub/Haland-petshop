@@ -140,7 +140,6 @@ CREATE TABLE "MedicalRecord" (
     "prescription" TEXT,
     "labResult" TEXT,
     "photos" TEXT,
-    "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "MedicalRecord_pkey" PRIMARY KEY ("id")
 );
