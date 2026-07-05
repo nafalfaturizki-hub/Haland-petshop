@@ -160,6 +160,9 @@ export default function AppointmentsPage() {
     { key: 'status', header: 'Status', render: (row) => row.status },
     { key: 'id', header: 'Aksi', render: (row) => (
       <div className="flex flex-wrap gap-2">
+        <Link href={`/medical-records?appointmentId=${row.id}`}>
+          <button type="button" className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1 text-xs text-violet-700">Rekam Medis</button>
+        </Link>
         <Link href={`/billing?appointmentId=${row.id}&customerId=${row.customer.id}&petId=${row.pet.id}`}>
           <button type="button" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1 text-xs text-blue-700">Invoice</button>
         </Link>

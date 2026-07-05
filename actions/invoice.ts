@@ -105,6 +105,8 @@ export async function getInvoiceLookups() {
         id: true,
         recordNumber: true,
         date: true,
+        treatment: true,
+        prescription: true,
         pet: { select: { id: true, name: true } },
         customer: { select: { id: true, name: true } },
       },

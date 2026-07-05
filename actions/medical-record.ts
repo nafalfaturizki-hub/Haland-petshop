@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { parseStructuredItems, serializeStructuredItems } from '@/lib/medical-record-utils';
 
 const MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_TYPES = [
@@ -90,6 +91,11 @@ function normalizeOptionalNumber(value: string | undefined | null) {
   if (!trimmed) return null;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function serializeMedicalRecordItems(value: string | undefined | null) {
+  const items = parseStructuredItems(value);
+  return items.length > 0 ? serializeStructuredItems(items) : null;
 }
 
 function parseAttachments(value: string | undefined | null) {
@@ -290,8 +296,8 @@ export async function createMedicalRecord(input: z.infer<typeof medicalRecordSch
       heartRate: normalizeOptionalNumber(parsed.data.heartRate as string | undefined) ? Math.round(Number(normalizeOptionalNumber(parsed.data.heartRate as string | undefined))) : null,
       respiratoryRate: normalizeOptionalNumber(parsed.data.respiratoryRate as string | undefined) ? Math.round(Number(normalizeOptionalNumber(parsed.data.respiratoryRate as string | undefined))) : null,
       diagnosis: normalizeOptionalText(parsed.data.diagnosis),
-      treatment: normalizeOptionalText(parsed.data.treatment),
-      prescription: normalizeOptionalText(parsed.data.prescription),
+      treatment: serializeMedicalRecordItems(parsed.data.treatment),
+      prescription: serializeMedicalRecordItems(parsed.data.prescription),
       labResult: normalizeOptionalText(parsed.data.labResult),
       notes: normalizeOptionalText(parsed.data.notes),
       status: parsed.data.status ?? 'COMPLETED',
@@ -357,8 +363,8 @@ export async function updateMedicalRecord(input: z.infer<typeof updateMedicalRec
       heartRate: normalizeOptionalNumber(parsed.data.heartRate as string | undefined) ? Math.round(Number(normalizeOptionalNumber(parsed.data.heartRate as string | undefined))) : null,
       respiratoryRate: normalizeOptionalNumber(parsed.data.respiratoryRate as string | undefined) ? Math.round(Number(normalizeOptionalNumber(parsed.data.respiratoryRate as string | undefined))) : null,
       diagnosis: normalizeOptionalText(parsed.data.diagnosis),
-      treatment: normalizeOptionalText(parsed.data.treatment),
-      prescription: normalizeOptionalText(parsed.data.prescription),
+      treatment: serializeMedicalRecordItems(parsed.data.treatment),
+      prescription: serializeMedicalRecordItems(parsed.data.prescription),
       labResult: normalizeOptionalText(parsed.data.labResult),
       notes: normalizeOptionalText(parsed.data.notes),
       status: parsed.data.status ?? existing.status,

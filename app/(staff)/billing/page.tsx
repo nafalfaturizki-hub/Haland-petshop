@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { CreditCard, FileIcon, Printer, Plus, Trash2, Wallet } from 'lucide-react';
 import { DataTable } from '@/components/shared/data-table';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { cancelInvoice, createInvoice, getInvoiceLookups, listInvoices, recordInvoicePayment } from '@/actions/invoice';
 import { listProducts } from '@/actions/product';
+import { parseStructuredItems } from '@/lib/medical-record-utils';
+import { buildInvoicePrefillFromSearchParams } from '@/lib/route-prefill';
 
 type InvoiceItemForm = {
   type: 'KONSULTASI' | 'TINDAKAN' | 'OBAT' | 'PET_HOTEL' | 'PRODUK';
@@ -37,7 +39,7 @@ type CustomerOption = { id: string; name: string };
 type ProductOption = { id: string; name: string; sellPrice: number; stock: number };
 type ProcedureOption = { id: string; code: string | null; name: string; price: number };
 type AppointmentOption = { id: string; pet: { id: string; name: string }; customer: { id: string; name: string } };
-type MedicalRecordOption = { id: string; recordNumber: string | null; pet: { id: string; name: string }; customer: { id: string; name: string } };
+type MedicalRecordOption = { id: string; recordNumber: string | null; treatment?: string | null; prescription?: string | null; pet: { id: string; name: string }; customer: { id: string; name: string } };
 
 export default function BillingPage() {
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
@@ -64,6 +66,7 @@ export default function BillingPage() {
   const [itemForm, setItemForm] = useState<InvoiceItemForm>({ type: 'KONSULTASI', description: '', qty: '1', price: '0', productId: '', procedureId: '' });
   const [items, setItems] = useState<InvoiceItemForm[]>([]);
   const [paymentForm, setPaymentForm] = useState({ amount: '0', method: 'CASH' as 'CASH' | 'NON_CASH' });
+  const prefillKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     void loadData();
@@ -80,6 +83,35 @@ export default function BillingPage() {
     if (invoicesResult.success) setInvoices((invoicesResult.invoices ?? []).map((inv: any) => ({ ...inv, date: (inv.date as Date).toISOString() })));
     if (productsResult.success) setProducts((productsResult.products ?? []).map((product: any) => ({ id: product.id, name: product.name, sellPrice: Number(product.sellPrice ?? 0), stock: Number(product.stock ?? 0) })));
   }
+
+  useEffect(() => {
+    const prefill = buildInvoicePrefillFromSearchParams(searchParams);
+    const prefillKey = `${prefill.customerId}|${prefill.appointmentId}|${prefill.medicalRecordId}|${prefill.petId}`;
+
+    if (prefillKeyRef.current === prefillKey) {
+      return;
+    }
+    prefillKeyRef.current = prefillKey;
+
+    if (!prefill.customerId && !prefill.appointmentId && !prefill.medicalRecordId && !prefill.petId) {
+      return;
+    }
+
+    const matchingAppointment = appointments.find((appointment) => appointment.id === prefill.appointmentId);
+    const matchingMedicalRecord = medicalRecords.find((record) => record.id === prefill.medicalRecordId);
+
+    setForm((current) => ({
+      ...current,
+      customerId: prefill.customerId || matchingAppointment?.customer.id || matchingMedicalRecord?.customer.id || current.customerId,
+      appointmentId: prefill.appointmentId || current.appointmentId,
+      medicalRecordId: prefill.medicalRecordId || current.medicalRecordId,
+      petId: prefill.petId || matchingAppointment?.pet.id || matchingMedicalRecord?.pet.id || current.petId,
+    }));
+
+    if (prefill.medicalRecordId) {
+      appendMedicalRecordItems(prefill.medicalRecordId);
+    }
+  }, [appointments, medicalRecords, searchParams]);
 
   const selectedInvoice = useMemo(() => invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null, [invoices, selectedInvoiceId]);
 
@@ -119,6 +151,47 @@ export default function BillingPage() {
 
   function removeItem(index: number) {
     setItems((current) => current.filter((_, idx) => idx !== index));
+  }
+
+  function appendMedicalRecordItems(medicalRecordId: string) {
+    const medicalRecord = medicalRecords.find((record) => record.id === medicalRecordId);
+    if (!medicalRecord) {
+      return;
+    }
+
+    const treatmentItems = parseStructuredItems(medicalRecord.treatment ?? null);
+    const prescriptionItems = parseStructuredItems(medicalRecord.prescription ?? null);
+    const appendedItems: InvoiceItemForm[] = [];
+
+    treatmentItems.forEach((item) => {
+      const procedureMatch = procedures.find((procedure) => procedure.name.toLowerCase() === item.name.toLowerCase());
+      appendedItems.push({
+        type: 'TINDAKAN',
+        description: item.name,
+        qty: String(item.qty),
+        price: procedureMatch ? String(procedureMatch.price) : '0',
+        productId: '',
+        procedureId: procedureMatch?.id ?? '',
+      });
+    });
+
+    prescriptionItems.forEach((item) => {
+      appendedItems.push({
+        type: 'OBAT',
+        description: item.name,
+        qty: String(item.qty),
+        price: '0',
+        productId: '',
+        procedureId: '',
+      });
+    });
+
+    if (appendedItems.length > 0) {
+      setItems((current) => [...current, ...appendedItems]);
+      setMessage('Item dari rekam medis ditambahkan ke invoice.');
+    } else {
+      setMessage('Rekam medis ini belum memiliki tindakan atau resep.');
+    }
   }
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + Number(item.qty) * Number(item.price), 0), [items]);
@@ -322,8 +395,11 @@ export default function BillingPage() {
                     medicalRecordId,
                     appointmentId: medicalRecordId ? '' : current.appointmentId,
                     customerId: medicalRecord?.customer.id ?? current.customerId,
-                    petId: medicalRecordId ? current.petId : current.petId,
+                    petId: medicalRecord?.pet.id ?? current.petId,
                   }));
+                  if (medicalRecordId) {
+                    appendMedicalRecordItems(medicalRecordId);
+                  }
                 }}
                 className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2"
               >

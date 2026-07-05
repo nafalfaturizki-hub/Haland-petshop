@@ -1,11 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { FileText, Printer, Trash2 } from 'lucide-react';
 import { createMedicalRecord, deleteMedicalRecord, getMedicalRecordAccess, listMedicalRecordOptions, listMedicalRecords, updateMedicalRecord } from '@/actions/medical-record';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { formatStructuredItemsForInput, parseStructuredItems } from '@/lib/medical-record-utils';
+import { buildMedicalRecordPrefillFromSearchParams } from '@/lib/route-prefill';
 
 type RecordRow = {
   id: string;
@@ -84,10 +87,18 @@ export default function MedicalRecordsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
   const [form, setForm] = useState<MedicalRecordFormState>(initialFormState);
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    const prefill = buildMedicalRecordPrefillFromSearchParams(searchParams);
+    if (prefill.appointmentId && !form.appointmentId) {
+      setForm((current) => ({ ...current, appointmentId: prefill.appointmentId }));
+    }
+  }, [form.appointmentId, searchParams]);
 
   const selectedRecord = useMemo(() => records.find((record) => record.id === selectedRecordId) ?? null, [records, selectedRecordId]);
 
@@ -133,8 +144,8 @@ export default function MedicalRecordsPage() {
       heartRate: record.heartRate != null ? String(record.heartRate) : '',
       respiratoryRate: record.respiratoryRate != null ? String(record.respiratoryRate) : '',
       diagnosis: record.diagnosis ?? '',
-      treatment: record.treatment ?? '',
-      prescription: record.prescription ?? '',
+      treatment: formatStructuredItemsForInput(parseStructuredItems(record.treatment ?? '')),
+      prescription: formatStructuredItemsForInput(parseStructuredItems(record.prescription ?? '')),
       labResult: record.labResult ?? '',
       notes: record.notes ?? '',
       status: record.status ?? 'OPEN',
@@ -315,11 +326,13 @@ export default function MedicalRecordsPage() {
           </label>
           <label className="block text-sm text-zinc-600">
             Tindakan
-            <textarea value={form.treatment} onChange={(event) => setForm({ ...form, treatment: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+            <textarea value={form.treatment} onChange={(event) => setForm({ ...form, treatment: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" rows={3} placeholder="Nama tindakan | qty | catatan" />
+            <span className="mt-1 block text-xs text-zinc-500">Format: Nama tindakan | 1 | catatan. Satu item per baris.</span>
           </label>
           <label className="block text-sm text-zinc-600">
             Resep
-            <textarea value={form.prescription} onChange={(event) => setForm({ ...form, prescription: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+            <textarea value={form.prescription} onChange={(event) => setForm({ ...form, prescription: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" rows={3} placeholder="Nama obat | 1 | catatan" />
+            <span className="mt-1 block text-xs text-zinc-500">Format: Nama obat | 1 | catatan. Satu item per baris.</span>
           </label>
           <label className="block text-sm text-zinc-600">
             Hasil laboratorium
@@ -369,8 +382,36 @@ export default function MedicalRecordsPage() {
             <div><dt className="font-medium text-zinc-500">Tanggal</dt><dd>{selectedRecord.date ? new Date(selectedRecord.date).toLocaleString('id-ID') : '-'}</dd></div>
             <div><dt className="font-medium text-zinc-500">Keluhan utama</dt><dd>{selectedRecord.chiefComplaint ?? '-'}</dd></div>
             <div><dt className="font-medium text-zinc-500">Diagnosis</dt><dd>{selectedRecord.diagnosis ?? '-'}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Tindakan</dt><dd>{selectedRecord.treatment ?? '-'}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Resep</dt><dd>{selectedRecord.prescription ?? '-'}</dd></div>
+            <div><dt className="font-medium text-zinc-500">Tindakan</dt><dd>{(() => {
+              const items = parseStructuredItems(selectedRecord.treatment ?? '');
+              if (items.length === 0) return '-';
+              return (
+                <ul className="space-y-1">
+                  {items.map((item, index) => (
+                    <li key={`${item.name}-${index}`} className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-700">
+                      <span className="font-medium">{item.name}</span>
+                      {item.qty > 1 ? <span> × {item.qty}</span> : null}
+                      {item.notes ? <span className="text-zinc-500"> — {item.notes}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}</dd></div>
+            <div><dt className="font-medium text-zinc-500">Resep</dt><dd>{(() => {
+              const items = parseStructuredItems(selectedRecord.prescription ?? '');
+              if (items.length === 0) return '-';
+              return (
+                <ul className="space-y-1">
+                  {items.map((item, index) => (
+                    <li key={`${item.name}-${index}`} className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-700">
+                      <span className="font-medium">{item.name}</span>
+                      {item.qty > 1 ? <span> × {item.qty}</span> : null}
+                      {item.notes ? <span className="text-zinc-500"> — {item.notes}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()}</dd></div>
             <div><dt className="font-medium text-zinc-500">Hasil lab</dt><dd>{selectedRecord.labResult ?? '-'}</dd></div>
             <div><dt className="font-medium text-zinc-500">Catatan klinis</dt><dd>{selectedRecord.notes ?? '-'}</dd></div>
             <div><dt className="font-medium text-zinc-500">Lampiran</dt><dd>{selectedRecord.attachments ? 'Tersedia' : 'Tidak ada'}</dd></div>
