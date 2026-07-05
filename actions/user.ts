@@ -6,7 +6,7 @@ import { auth } from '@/lib/auth';
 import { createUser as createUserInternal, resetPin as resetPinInternal, unlockUser as unlockUserInternal } from '@/lib/user-management';
 import { prisma } from '@/lib/db';
 import { canManageTargetRole, canPerformAction, type Role } from '@/lib/permissions';
-import { getActorRole } from '@/lib/utils';
+import { getActorRole, normalizeUsername } from '@/lib/utils';
 
 const userInputSchema = z.object({
   username: z.string().trim().min(3).max(30).regex(/^[a-z0-9_]+$/),
@@ -35,10 +35,6 @@ const resetPinSchema = z.object({
 const unlockUserSchema = z.object({
   id: z.string().min(1),
 });
-
-function normalizeUsername(username: string) {
-  return username.trim().toLowerCase();
-}
 
 function getCastedActorRole(session: Awaited<ReturnType<typeof auth>>) {
   return getActorRole(session) as Role | undefined;

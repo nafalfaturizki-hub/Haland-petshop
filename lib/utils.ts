@@ -37,3 +37,7 @@ export function normalizeOptionalNumber(value: string | undefined | null) {
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
 }
+
+export function normalizeUsername(username: string) {
+  return username.trim().toLowerCase();
+}

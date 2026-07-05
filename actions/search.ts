@@ -3,16 +3,12 @@
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { isStaffRole } from '@/lib/permissions';
+import { isStaffRole, isDoctor } from '@/lib/permissions';
 import { getActorRole, getActorId } from '@/lib/utils';
 
 const searchSchema = z.object({
   query: z.string().trim().min(1).max(80),
 });
-
-function isDoctor(role?: string) {
-  return role === 'DOKTER';
-}
 
 export async function searchGlobal(input: z.infer<typeof searchSchema>) {
   const session = await auth();

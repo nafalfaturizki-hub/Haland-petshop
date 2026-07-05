@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, getCustomerForSession } from '@/lib/db';
 import { getActorRole } from '@/lib/utils';
 
 const petSchema = z.object({
@@ -73,7 +73,7 @@ export async function listPets() {
   }
 
   if (actorRole === 'CUSTOMER') {
-    const customer = await prisma.customer.findFirst({ where: { userId: session.user.id } });
+    const customer = await getCustomerForSession(session.user.id);
     if (!customer) return { success: true, pets: [] };
 
     const pets = await prisma.pet.findMany({
@@ -101,7 +101,7 @@ export async function getPet(id: string) {
   }
 
   if (actorRole === 'CUSTOMER') {
-    const customer = await prisma.customer.findFirst({ where: { userId: session.user.id } });
+    const customer = await getCustomerForSession(session.user.id);
     if (!customer) return { success: false, message: 'Data tidak ditemukan.' };
 
     const pet = await prisma.pet.findFirst({

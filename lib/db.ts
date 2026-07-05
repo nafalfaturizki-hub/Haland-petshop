@@ -23,3 +23,7 @@ export async function createAuditLog(userId: string, action: string, entity: str
     // Audit log failures should not block operations
   }
 }
+
+export async function getCustomerForSession(sessionId: string) {
+  return prisma.customer.findFirst({ where: { userId: sessionId } });
+}

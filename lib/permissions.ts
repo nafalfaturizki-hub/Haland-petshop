@@ -32,6 +32,10 @@ export function isCustomerRole(role: string | undefined): role is 'CUSTOMER' {
   return role === 'CUSTOMER';
 }
 
+export function isDoctor(role?: string) {
+  return role === 'DOKTER';
+}
+
 export function getDefaultRedirectPath(role: string | undefined) {
   if (!role) {
     return '/login';

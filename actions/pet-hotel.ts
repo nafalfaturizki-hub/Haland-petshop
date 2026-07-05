@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { createInvoice } from '@/actions/invoice';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
-import { prisma, createAuditLog } from '@/lib/db';
+import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
 import { getActorRole, getActorId, normalizeOptionalText } from '@/lib/utils';
 
@@ -64,10 +64,6 @@ function generateBookingNumber() {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const random = Math.floor(1000 + Math.random() * 9000);
   return `PH-${datePart}-${random}`;
-}
-
-async function getCustomerForSession(sessionId: string) {
-  return prisma.customer.findFirst({ where: { userId: sessionId } });
 }
 
 async function notifyPetHotelChange(userId: string | null | undefined, title: string, message: string) {

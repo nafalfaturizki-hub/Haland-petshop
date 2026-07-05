@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, getCustomerForSession } from '@/lib/db';
 import { getActorRole, getActorId } from '@/lib/utils';
 
 const appointmentSchema = z.object({
@@ -31,10 +31,6 @@ const updateAppointmentSchema = z.object({
 const cancelAppointmentSchema = z.object({
   id: z.string().min(1),
 });
-
-async function getCustomerForSession(sessionId: string) {
-  return prisma.customer.findFirst({ where: { userId: sessionId } });
-}
 
 async function notifyAppointmentChange(userId: string | null | undefined, title: string, message: string) {
   if (!userId) {

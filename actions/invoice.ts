@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
-import { prisma, createAuditLog } from '@/lib/db';
+import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
 import { getActorRole, getActorId, roundCurrency, normalizeOptionalText } from '@/lib/utils';
 
@@ -480,7 +480,7 @@ export async function getPortalInvoices() {
     return { success: false, message: 'Tidak terautentikasi.' };
   }
 
-  const customer = await prisma.customer.findFirst({ where: { userId: actorId } });
+  const customer = await getCustomerForSession(actorId);
   if (!customer) {
     return { success: false, message: 'Data pelanggan tidak ditemukan.' };
   }
@@ -505,7 +505,7 @@ export async function getPortalInvoiceSummary() {
     return { success: false, message: 'Tidak terautentikasi.' };
   }
 
-  const customer = await prisma.customer.findFirst({ where: { userId: actorId } });
+  const customer = await getCustomerForSession(actorId);
   if (!customer) {
     return { success: false, message: 'Data pelanggan tidak ditemukan.' };
   }

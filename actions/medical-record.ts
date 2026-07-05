@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
-import { prisma, createAuditLog } from '@/lib/db';
+import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { parseStructuredItems, serializeStructuredItems } from '@/lib/medical-record-utils';
 import { getActorRole, getActorId, normalizeOptionalText, normalizeOptionalNumber } from '@/lib/utils';
 
@@ -43,10 +43,6 @@ const medicalRecordSchema = z.object({
 const updateMedicalRecordSchema = medicalRecordSchema.extend({
   id: z.string().trim().min(1, 'ID rekam medis wajib ada.'),
 });
-
-async function getCustomerForSession(sessionId: string) {
-  return prisma.customer.findFirst({ where: { userId: sessionId } });
-}
 
 async function notifyMedicalRecordChange(userId: string | null | undefined, title: string, message: string) {
   if (!userId) {

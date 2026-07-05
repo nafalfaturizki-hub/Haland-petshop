@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { canManageTargetRole, canPerformAction, type Role } from '@/lib/permissions';
+import { normalizeUsername } from '@/lib/utils';
 
 const createUserSchema = z.object({
   username: z.string().trim().min(3).max(30).regex(/^[a-z0-9_]+$/),
@@ -25,10 +26,6 @@ const unlockUserSchema = z.object({
 
 function generatePin() {
   return String(randomInt(100000, 1000000));
-}
-
-function normalizeUsername(username: string) {
-  return username.trim().toLowerCase();
 }
 
 function getActorRole(session: Awaited<ReturnType<typeof auth>>) {

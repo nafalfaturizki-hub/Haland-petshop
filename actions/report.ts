@@ -3,6 +3,7 @@
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { isDoctor } from '@/lib/permissions';
 
 import { getActorRole, getActorId } from '@/lib/utils';
 const REPORT_TYPES = [
@@ -38,10 +39,6 @@ const reportFilterSchema = z.object({
 type ReportType = (typeof REPORT_TYPES)[number];
 
 type ReportFilters = z.infer<typeof reportFilterSchema>;
-
-function isDoctor(role?: string) {
-  return role === 'DOKTER';
-}
 
 const STAFF_ROLES = ['OWNER', 'ADMIN_KLINIK', 'DOKTER'];
 
