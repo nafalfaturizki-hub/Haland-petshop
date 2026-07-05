@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, House, ReceiptText, ScrollText, CircleUserRound, PawPrint } from 'lucide-react';
+import { CalendarDays, House, ReceiptText, CircleUserRound, PawPrint } from 'lucide-react';
 
 const items = [
   { href: '/portal', label: 'Beranda', icon: House },

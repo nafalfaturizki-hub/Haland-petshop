@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { DoorOpen, CalendarDays, CheckCircle2, LogOut, NotebookPen, Search } from 'lucide-react';
-import { cancelPetHotelBooking, checkInPetHotelBooking, checkOutPetHotelBooking, createPetHotelBooking, createPetHotelLog, createPetHotelRoom, deletePetHotelRoom, listPetHotelBookings, listPetHotelLogs, listPetHotelPets, listPetHotelRooms, updatePetHotelBooking, updatePetHotelRoom } from '@/actions/pet-hotel';
+import { DoorOpen, CalendarDays, NotebookPen, Search } from 'lucide-react';
+import { cancelPetHotelBooking, checkInPetHotelBooking, checkOutPetHotelBooking, createPetHotelBooking, createPetHotelLog, createPetHotelRoom, deletePetHotelRoom, listPetHotelBookings, listPetHotelLogs, listPetHotelPets, listPetHotelRooms, updatePetHotelRoom } from '@/actions/pet-hotel';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 
@@ -130,17 +130,6 @@ export default function PetHotelPage() {
       return;
     }
     setMessage(result.message ?? 'Gagal menyimpan kamar.');
-  }
-
-  async function handleRoomDelete(id: string) {
-    if (!confirm('Yakin hapus kamar ini?')) return;
-    const result = await deletePetHotelRoom(id);
-    if (result.success) {
-      setMessage('Kamar dihapus.');
-      await loadData();
-      return;
-    }
-    setMessage(result.message ?? 'Gagal menghapus kamar.');
   }
 
   async function handleBookingSubmit(event: React.FormEvent) {

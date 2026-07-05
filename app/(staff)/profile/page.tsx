@@ -4,10 +4,7 @@ import { useEffect, useState } from 'react';
 import { Lock, User } from 'lucide-react';
 import { changePin, getProfileData, updateProfile } from '@/actions/profile';
 
-type UserProfile = { id: string; username: string; name: string; phone?: string | null; role: string };
-
 export default function ProfilePage() {
-  const [user, setUser] = useState<UserProfile | null>(null);
   const [message, setMessage] = useState('');
   const [form, setForm] = useState({ name: '', phone: '' });
   const [pinForm, setPinForm] = useState({ currentPin: '', newPin: '' });
@@ -19,7 +16,6 @@ export default function ProfilePage() {
   async function loadProfile() {
     const result = await getProfileData();
     if (result.success && result.data) {
-      setUser(result.data.user);
       setForm({ name: result.data.user.name, phone: result.data.user.phone ?? '' });
     } else {
       setMessage(result.message ?? 'Gagal memuat profil.');
@@ -30,9 +26,6 @@ export default function ProfilePage() {
     event.preventDefault();
     const result = await updateProfile(form);
     setMessage(result.message ?? 'Profil berhasil disimpan.');
-    if (result.success && result.data) {
-      setUser(result.data.user);
-    }
   }
 
   async function handleChangePin(event: React.FormEvent) {

@@ -4,8 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { canPerformAction } from '@/lib/permissions';
-import { getActorRole, getActorId } from '@/lib/utils';
+
+import { getActorRole } from '@/lib/utils';
 
 const settingsSchema = z.object({
   clinicName: z.string().trim().max(100).optional().or(z.literal('')),

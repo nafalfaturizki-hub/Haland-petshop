@@ -43,7 +43,6 @@ const initialForm = {
 };
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<any>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [isOwner, setIsOwner] = useState(false);
   const [message, setMessage] = useState('');
@@ -61,7 +60,6 @@ export default function SettingsPage() {
     const result = await getSettingsData();
     if (result.success && result.data) {
       const data = result.data;
-      setSettings(data.settings);
       setAuditLogs(data.auditLogs ?? []);
       setIsOwner(data.isOwner ?? false);
       setForm({

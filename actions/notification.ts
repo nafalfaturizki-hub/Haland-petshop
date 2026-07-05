@@ -2,7 +2,8 @@
 
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
+import { getActorId } from '@/lib/utils';
 
 const markReadSchema = z.object({
   id: z.string().min(1),
@@ -18,22 +19,6 @@ const createNotificationSchema = z.object({
 const deleteNotificationSchema = z.object({
   id: z.string().min(1),
 });
-
-function getActorId(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.id;
-}
-
-async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action,
-      entity,
-      entityId,
-      description,
-    },
-  });
-}
 
 export async function getNotifications() {
   const session = await auth();

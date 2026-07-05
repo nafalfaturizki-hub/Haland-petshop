@@ -23,7 +23,6 @@ export type ModuleName =
 export type PermissionAction = 'create' | 'read' | 'update' | 'delete' | 'approve' | 'cancel' | 'export' | 'print' | 'payment' | 'stock-adjustment';
 
 const STAFF_ROLES: Role[] = ['OWNER', 'ADMIN_KLINIK', 'DOKTER'];
-const CUSTOMER_ROLES: Role[] = ['CUSTOMER'];
 
 export function isStaffRole(role: string | undefined): role is Exclude<Role, 'CUSTOMER'> {
   return Boolean(role && STAFF_ROLES.includes(role as Role));

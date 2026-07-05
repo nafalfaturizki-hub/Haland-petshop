@@ -5,8 +5,9 @@ import { z } from 'zod';
 import { createInvoice } from '@/actions/invoice';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
+import { getActorRole, getActorId, normalizeOptionalText } from '@/lib/utils';
 
 const petHotelRoomSchema = z.object({
   name: z.string().trim().min(1, 'Nama kamar wajib diisi.').max(100),
@@ -48,20 +49,6 @@ const HOTEL_DAILY_RATE = 100000;
 
 type RoomStatus = 'AVAILABLE' | 'RESERVED' | 'OCCUPIED' | 'MAINTENANCE' | 'INACTIVE';
 
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
-
-function getActorId(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.id;
-}
-
-function normalizeOptionalText(value: string | undefined | null) {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 function getStartOfDay(date: Date) {
   const normalized = new Date(date);
   normalized.setHours(0, 0, 0, 0);
@@ -77,18 +64,6 @@ function generateBookingNumber() {
   const datePart = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const random = Math.floor(1000 + Math.random() * 9000);
   return `PH-${datePart}-${random}`;
-}
-
-async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action,
-      entity,
-      entityId,
-      description,
-    },
-  });
 }
 
 async function getCustomerForSession(sessionId: string) {

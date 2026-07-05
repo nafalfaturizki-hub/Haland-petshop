@@ -4,10 +4,10 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
-import { prisma, createAuditLog } from '@/lib/db';
+import { prisma } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
 import { calculatePosTotals, getPaymentStatus, roundCurrency } from '@/lib/pos';
-import { getActorRole, getActorId } from '@/lib/utils';
+import { getActorRole } from '@/lib/utils';
 
 const productSearchSchema = z.object({
   query: z.string().trim().min(1, 'Pencarian tidak boleh kosong.'),

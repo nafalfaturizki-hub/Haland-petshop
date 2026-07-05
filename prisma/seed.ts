@@ -139,7 +139,7 @@ async function main() {
     },
   });
 
-  const categoryMedicine = await prisma.productCategory.upsert({
+  await prisma.productCategory.upsert({
     where: { id: 'cat-medicine' },
     update: {},
     create: {
@@ -164,7 +164,7 @@ async function main() {
   console.log('✅ Sample supplier created:', supplier.name);
 
   // Create sample products
-  const product1 = await prisma.product.upsert({
+  await prisma.product.upsert({
     where: { id: 'prod-001' },
     update: {},
     create: {
@@ -181,7 +181,7 @@ async function main() {
     },
   });
 
-  const product2 = await prisma.product.upsert({
+  await prisma.product.upsert({
     where: { id: 'prod-002' },
     update: {},
     create: {
@@ -201,7 +201,7 @@ async function main() {
   console.log('✅ Sample products created');
 
   // Create pet hotel rooms
-  const room1 = await prisma.petHotelRoom.upsert({
+  await prisma.petHotelRoom.upsert({
     where: { id: 'room-001' },
     update: {},
     create: {
@@ -211,7 +211,7 @@ async function main() {
     },
   });
 
-  const room2 = await prisma.petHotelRoom.upsert({
+  await prisma.petHotelRoom.upsert({
     where: { id: 'room-002' },
     update: {},
     create: {

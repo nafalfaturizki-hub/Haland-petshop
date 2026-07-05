@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, CalendarDays, CircleUserRound, House, Package2, ScrollText, Settings, ShoppingBag, Stethoscope, Users, Warehouse, ReceiptText, Hotel, ShieldCheck } from 'lucide-react';
+import { BarChart3, CalendarDays, CircleUserRound, House, Package2, ScrollText, Settings, ShoppingBag, Stethoscope, Users, ReceiptText, Hotel, ShieldCheck } from 'lucide-react';
 import { canAccessModule } from '@/lib/permissions';
 
 interface SidebarProps {

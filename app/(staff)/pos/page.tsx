@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Banknote, Barcode, CheckCircle2, CreditCard, Printer, Search, ShoppingBag, UserPlus } from 'lucide-react';
+import { ArrowRight, Banknote, CheckCircle2, Printer, Search, ShoppingBag } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { createPosSale, searchProducts } from '@/actions/pos';
 import { getInvoiceLookups } from '@/actions/invoice';

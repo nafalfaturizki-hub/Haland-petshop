@@ -4,11 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { createUser as createUserInternal, resetPin as resetPinInternal, unlockUser as unlockUserInternal } from '@/lib/user-management';
-import { prisma, createAuditLog } from '@/lib/db';
+import { prisma } from '@/lib/db';
 import { canManageTargetRole, canPerformAction, type Role } from '@/lib/permissions';
 import { getActorRole } from '@/lib/utils';
-
-type UserRole = Role;
 
 const userInputSchema = z.object({
   username: z.string().trim().min(3).max(30).regex(/^[a-z0-9_]+$/),

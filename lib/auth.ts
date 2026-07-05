@@ -1,6 +1,5 @@
 import { getServerSession } from 'next-auth/next';
 import type { DefaultSession, NextAuthOptions, Session } from 'next-auth';
-import type { JWT } from 'next-auth/jwt';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
@@ -180,7 +179,7 @@ export const authOptions: NextAuthOptions = {
     },
   },
   callbacks: {
-    async jwt({ token, user, trigger }) {
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id as string;
         token.role = (user as { role?: string }).role as string;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Download, FileIcon, Printer } from 'lucide-react';
+import { FileIcon, Printer } from 'lucide-react';
 import { DataTable } from '@/components/shared/data-table';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { getPortalInvoices } from '@/actions/invoice';
