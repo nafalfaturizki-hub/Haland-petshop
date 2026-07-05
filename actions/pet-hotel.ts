@@ -32,11 +32,7 @@ const petHotelBookingSchema = z.object({
   notes: z.string().trim().max(1000).optional().or(z.literal('')),
 });
 
-const updatePetHotelBookingSchema = petHotelBookingSchema.extend({
-  id: z.string().trim().min(1, 'Reservasi tidak valid.'),
-  status: z.enum(['BOOKED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED']).optional(),
-  petId: z.string().trim().min(1, 'Hewan wajib dipilih.').optional(),
-});
+
 
 const petHotelLogSchema = z.object({
   bookingId: z.string().trim().min(1, 'Reservasi wajib dipilih.'),
@@ -409,94 +405,6 @@ export async function createPetHotelBooking(input: z.infer<typeof petHotelBookin
   await notifyPetHotelChange(customer?.userId, 'Reservasi pet hotel dibuat', `Reservasi pet hotel untuk ${pet.name} berhasil dibuat.`);
 
   revalidatePath('/portal/pet-hotel');
-  revalidatePath('/pet-hotel');
-  return { success: true, booking };
-}
-
-export async function updatePetHotelBooking(input: z.infer<typeof updatePetHotelBookingSchema>) {
-  const session = await auth();
-  const actorRole = getActorRole(session);
-  const actorId = getActorId(session);
-  const parsed = updatePetHotelBookingSchema.safeParse(input);
-
-  if (!parsed.success) {
-    return { success: false, message: 'Data tidak valid.' };
-  }
-
-  if (!actorId || !isStaffRole(actorRole)) {
-    return { success: false, message: 'Anda tidak berwenang mengubah reservasi.' };
-  }
-
-  const existing = await prisma.petHotelBooking.findUnique({ where: { id: parsed.data.id } });
-  if (!existing) {
-    return { success: false, message: 'Reservasi tidak ditemukan.' };
-  }
-
-  if (existing.status !== 'BOOKED') {
-    return { success: false, message: 'Hanya reservasi yang masih booked yang bisa diperbarui.' };
-  }
-
-  const effectivePetId = parsed.data.petId ?? existing.petId;
-  const pet = await prisma.pet.findUnique({ where: { id: effectivePetId } });
-  if (!pet) {
-    return { success: false, message: 'Hewan tidak ditemukan.' };
-  }
-
-  const checkInDate = new Date(`${parsed.data.checkInDate}T00:00:00`);
-  const checkOutDate = new Date(`${parsed.data.checkOutDate}T00:00:00`);
-
-  if (checkOutDate <= checkInDate) {
-    return { success: false, message: 'Tanggal check-out harus setelah tanggal check-in.' };
-  }
-
-  if (parsed.data.roomId) {
-    const room = await prisma.petHotelRoom.findUnique({ where: { id: parsed.data.roomId } });
-    if (!room) {
-      return { success: false, message: 'Kamar tidak ditemukan.' };
-    }
-    if (room.status === 'MAINTENANCE' || room.status === 'INACTIVE' || room.maintenanceStatus === 'OUT_OF_SERVICE') {
-      return { success: false, message: 'Kamar tidak tersedia untuk reservasi.' };
-    }
-
-    const conflict = await findConflictingBooking(room.id, checkInDate, checkOutDate, existing.id);
-    if (conflict) {
-      return { success: false, message: 'Kamar sudah dipesan untuk rentang tanggal tersebut.' };
-    }
-  }
-
-  const booking = await prisma.$transaction(async (tx) => {
-    const updated = await tx.petHotelBooking.update({
-      where: { id: parsed.data.id },
-      data: {
-        petId: effectivePetId,
-        roomId: parsed.data.roomId || null,
-        checkInDate,
-        checkOutDate,
-        status: parsed.data.status ?? 'BOOKED',
-        notes: normalizeOptionalText(parsed.data.notes),
-      },
-    });
-
-    await tx.auditLog.create({
-      data: {
-        userId: actorId,
-        action: 'UPDATE',
-        entity: 'PetHotelBooking',
-        entityId: updated.id,
-        description: `Memperbarui reservasi ${updated.id}`,
-      },
-    });
-
-    return updated;
-  });
-
-  if (existing.roomId) {
-    await syncRoomStatus(existing.roomId);
-  }
-  if (booking.roomId) {
-    await syncRoomStatus(booking.roomId);
-  }
-
   revalidatePath('/pet-hotel');
   return { success: true, booking };
 }
