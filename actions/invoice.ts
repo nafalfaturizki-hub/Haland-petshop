@@ -4,8 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
+import { getActorRole, getActorId, roundCurrency, normalizeOptionalText } from '@/lib/utils';
 
 const invoiceItemSchema = z.object({
   type: z.enum(['KONSULTASI', 'TINDAKAN', 'OBAT', 'PET_HOTEL', 'PRODUK']),
@@ -37,36 +38,6 @@ const recordPaymentSchema = z.object({
 });
 
 const cancelInvoiceSchema = z.object({ id: z.string().min(1) });
-
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
-
-function getActorId(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.id;
-}
-
-function roundCurrency(value: number) {
-  return Number(value.toFixed(2));
-}
-
-function normalizeOptionalText(value: string | undefined | null) {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action,
-      entity,
-      entityId,
-      description,
-    },
-  });
-}
 
 async function notifyInvoiceChange(userId: string | null | undefined, title: string, message: string) {
   if (!userId) {

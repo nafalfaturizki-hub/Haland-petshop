@@ -4,8 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { createUser as createUserInternal, resetPin as resetPinInternal, unlockUser as unlockUserInternal } from '@/lib/user-management';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
 import { canManageTargetRole, canPerformAction, type Role } from '@/lib/permissions';
+import { getActorRole } from '@/lib/utils';
 
 type UserRole = Role;
 
@@ -37,17 +38,17 @@ const unlockUserSchema = z.object({
   id: z.string().min(1),
 });
 
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role as Role | undefined;
-}
-
 function normalizeUsername(username: string) {
   return username.trim().toLowerCase();
 }
 
+function getCastedActorRole(session: Awaited<ReturnType<typeof auth>>) {
+  return getActorRole(session) as Role | undefined;
+}
+
 export async function listUsers() {
   const session = await auth();
-  const actorRole = getActorRole(session);
+  const actorRole = getCastedActorRole(session);
 
   if (!session?.user?.id) {
     return { success: false, message: 'Tidak terautentikasi.' };
@@ -89,7 +90,7 @@ export async function createUser(input: z.infer<typeof userInputSchema>) {
 
 export async function updateUser(input: z.infer<typeof updateUserSchema>) {
   const session = await auth();
-  const actorRole = getActorRole(session);
+  const actorRole = getCastedActorRole(session);
   const parsed = updateUserSchema.safeParse(input);
 
   if (!parsed.success) {
@@ -156,7 +157,7 @@ export async function updateUser(input: z.infer<typeof updateUserSchema>) {
 
 export async function deleteUser(input: z.infer<typeof deleteUserSchema>) {
   const session = await auth();
-  const actorRole = getActorRole(session);
+  const actorRole = getCastedActorRole(session);
   const parsed = deleteUserSchema.safeParse(input);
 
   if (!parsed.success) {
@@ -220,7 +221,7 @@ export async function deleteUser(input: z.infer<typeof deleteUserSchema>) {
 
 export async function activateUser(input: z.infer<typeof activateUserSchema>) {
   const session = await auth();
-  const actorRole = getActorRole(session);
+  const actorRole = getCastedActorRole(session);
   const parsed = activateUserSchema.safeParse(input);
 
   if (!parsed.success) {

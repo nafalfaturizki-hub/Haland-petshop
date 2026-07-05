@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
+import { getActorRole, getActorId } from '@/lib/utils';
 
 const appointmentSchema = z.object({
   petId: z.string().min(1, 'Pilih hewan terlebih dahulu.'),
@@ -30,14 +31,6 @@ const updateAppointmentSchema = z.object({
 const cancelAppointmentSchema = z.object({
   id: z.string().min(1),
 });
-
-function getActorRole(session: any) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
-
-function getActorId(session: any) {
-  return session?.user?.id;
-}
 
 async function getCustomerForSession(sessionId: string) {
   return prisma.customer.findFirst({ where: { userId: sessionId } });

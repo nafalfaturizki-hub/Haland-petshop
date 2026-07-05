@@ -1,6 +1,6 @@
-export function roundCurrency(value: number) {
-  return Number(value.toFixed(2));
-}
+import { roundCurrency } from './utils';
+
+export { roundCurrency } from './utils';
 
 export function calculatePosTotals(subtotal: number, discountAmount: number, taxRate: number) {
   const normalizedSubtotal = roundCurrency(Math.max(0, subtotal));
