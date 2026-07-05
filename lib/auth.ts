@@ -4,7 +4,7 @@ import type { JWT } from 'next-auth/jwt';
 import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { prisma } from './db';
+import { prisma, createAuditLog } from './db';
 
 declare module 'next-auth' {
   interface Session {
@@ -36,18 +36,6 @@ const nextAuthSecret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
 
 if (!nextAuthSecret) {
   throw new Error('Missing NEXTAUTH_SECRET or AUTH_SECRET');
-}
-
-async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action,
-      entity,
-      entityId,
-      description,
-    },
-  });
 }
 
 async function getFreshUser(userId: string) {

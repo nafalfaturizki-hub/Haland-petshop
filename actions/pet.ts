@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { getActorRole } from '@/lib/utils';
 
 const petSchema = z.object({
   customerId: z.string().trim().min(1, 'Pilih pemilik terlebih dahulu.'),
@@ -23,10 +24,6 @@ const updatePetSchema = petSchema.extend({
 const deletePetSchema = z.object({
   id: z.string().min(1),
 });
-
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
 
 async function ensureAccess(actorRole: string | undefined) {
   if (!actorRole) {

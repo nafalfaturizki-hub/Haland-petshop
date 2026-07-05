@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
+import { getActorRole, getActorId, normalizeOptionalText } from '@/lib/utils';
 
 const productSchema = z.object({
   name: z.string().trim().min(1, 'Nama produk wajib diisi.').max(200),
@@ -46,31 +47,7 @@ const updateSupplierSchema = supplierSchema.extend({
   id: z.string().min(1),
 });
 
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
 
-function getActorId(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.id;
-}
-
-function normalizeOptionalText(value: string | undefined | null) {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action,
-      entity,
-      entityId,
-      description,
-    },
-  });
-}
 
 async function validateProductUniqueness(sku: string | null, barcode: string | null, excludeId?: string) {
   if (!sku && !barcode) return null;

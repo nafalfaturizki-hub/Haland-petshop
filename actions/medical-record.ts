@@ -4,8 +4,9 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { createNotification } from '@/actions/notification';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
 import { parseStructuredItems, serializeStructuredItems } from '@/lib/medical-record-utils';
+import { getActorRole, getActorId, normalizeOptionalText, normalizeOptionalNumber } from '@/lib/utils';
 
 const MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_TYPES = [
@@ -43,28 +44,8 @@ const updateMedicalRecordSchema = medicalRecordSchema.extend({
   id: z.string().trim().min(1, 'ID rekam medis wajib ada.'),
 });
 
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
-
-function getActorId(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.id;
-}
-
 async function getCustomerForSession(sessionId: string) {
   return prisma.customer.findFirst({ where: { userId: sessionId } });
-}
-
-async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action,
-      entity,
-      entityId,
-      description,
-    },
-  });
 }
 
 async function notifyMedicalRecordChange(userId: string | null | undefined, title: string, message: string) {
@@ -79,19 +60,7 @@ async function notifyMedicalRecordChange(userId: string | null | undefined, titl
   }
 }
 
-function normalizeOptionalText(value: string | undefined | null) {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
 
-function normalizeOptionalNumber(value: string | undefined | null) {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 function serializeMedicalRecordItems(value: string | undefined | null) {
   const items = parseStructuredItems(value);

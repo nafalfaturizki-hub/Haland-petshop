@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
+import { getActorRole, getActorId } from '@/lib/utils';
 const REPORT_TYPES = [
   'revenue',
   'appointments',
@@ -37,14 +38,6 @@ const reportFilterSchema = z.object({
 type ReportType = (typeof REPORT_TYPES)[number];
 
 type ReportFilters = z.infer<typeof reportFilterSchema>;
-
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
-
-function getActorId(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.id;
-}
 
 function isDoctor(role?: string) {
   return role === 'DOKTER';

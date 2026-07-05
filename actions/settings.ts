@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { canPerformAction } from '@/lib/permissions';
+import { getActorRole, getActorId } from '@/lib/utils';
 
 const settingsSchema = z.object({
   clinicName: z.string().trim().max(100).optional().or(z.literal('')),
@@ -47,10 +48,6 @@ const settingsSchema = z.object({
 const restoreBackupSchema = z.object({
   content: z.string().min(1).max(10_000_000),
 });
-
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
 
 function isOwner(role?: string) {
   return role === 'OWNER';

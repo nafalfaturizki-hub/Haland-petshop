@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
+import { getActorRole, getActorId, normalizeOptionalText } from '@/lib/utils';
 
 const stockMovementSchema = z.object({
   productId: z.string().trim().min(1, 'Produk wajib dipilih.'),
@@ -12,32 +13,6 @@ const stockMovementSchema = z.object({
   quantity: z.coerce.number().int().min(0, 'Jumlah tidak boleh negatif.'),
   note: z.string().trim().max(1000).optional().or(z.literal('')),
 });
-
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
-
-function getActorId(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.id;
-}
-
-function normalizeOptionalText(value: string | undefined | null) {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action,
-      entity,
-      entityId,
-      description,
-    },
-  });
-}
 
 export async function listInventory() {
   const session = await auth();

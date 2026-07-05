@@ -3,8 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
+import { getActorRole, getActorId } from '@/lib/utils';
 
 const procedureSchema = z.object({
   code: z.string().trim().max(100).optional().or(z.literal('')),
@@ -16,14 +17,6 @@ const procedureSchema = z.object({
 const updateProcedureSchema = procedureSchema.extend({
   id: z.string().trim().min(1, 'Prosedur tidak valid.'),
 });
-
-function getActorRole(session: Awaited<ReturnType<typeof auth>>) {
-  return (session?.user as { role?: string } | undefined)?.role;
-}
-
-function getActorId(session: Awaited<ReturnType<typeof auth>>) {
-  return session?.user?.id;
-}
 
 export async function listProcedures() {
   const session = await auth();
