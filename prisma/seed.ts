@@ -232,8 +232,6 @@ async function main() {
       clinicName: 'HaLand PetCare Clinic',
       address: 'Jakarta, Indonesia',
       phone: '021-1234567',
-      currency: 'IDR',
-      invoiceFormat: 'INV-YYYY-MM-DD-XXXX',
     },
   });
 
