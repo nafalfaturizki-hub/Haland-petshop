@@ -31,11 +31,20 @@ const loginSchema = z.object({
   pin: z.string().trim().regex(/^\d{6}$/, 'PIN harus 6 digit.'),
 });
 
-const nextAuthSecret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
+function getNextAuthSecret() {
+  const envSecret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
+  if (envSecret) {
+    return envSecret;
+  }
 
-if (!nextAuthSecret) {
-  throw new Error('Missing NEXTAUTH_SECRET or AUTH_SECRET');
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production') {
+    return undefined;
+  }
+
+  return 'next-auth-dev-secret';
 }
+
+const nextAuthSecret = getNextAuthSecret();
 
 async function getFreshUser(userId: string) {
   return prisma.user.findUnique({
@@ -73,7 +82,6 @@ export const authOptions: NextAuthOptions = {
         try {
           const parsed = loginSchema.safeParse(credentials);
           if (!parsed.success) {
-            console.log('[AUTH] Schema parse failed');
             return null;
           }
 

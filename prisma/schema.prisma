@@ -140,6 +140,8 @@ model Pet {
   appointments   Appointment[]
   medicalRecords MedicalRecord[]
   hotelBookings  PetHotelBooking[]
+
+  @@index([customerId])
 }
 
 model PetWeightLog {
@@ -194,6 +196,10 @@ model Appointment {
   customer      Customer       @relation(fields: [customerId], references: [id])
   doctor        User?          @relation("DoctorAppointments", fields: [doctorId], references: [id])
   medicalRecord MedicalRecord?
+
+  @@index([customerId, date])
+  @@index([doctorId, status, date])
+  @@index([status, date])
 }
 
 model MedicalRecord {
@@ -304,6 +310,10 @@ model Product {
   supplier       Supplier?        @relation(fields: [supplierId], references: [id])
   stockMovements StockMovement[]
   invoiceItems   InvoiceItem[]
+
+  @@index([categoryId])
+  @@index([supplierId])
+  @@index([isArchived])
 }
 
 model Procedure {
@@ -364,6 +374,9 @@ model Invoice {
   customer Customer      @relation(fields: [customerId], references: [id])
   items    InvoiceItem[]
   payments Payment[]
+
+  @@index([customerId, status])
+  @@index([date])
 }
 
 model InvoiceItem {
@@ -390,6 +403,8 @@ model Payment {
   date      DateTime      @default(now())
 
   invoice Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
 }
 
 model Notification {
@@ -414,6 +429,8 @@ model AuditLog {
   date        DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, date])
 }
 
 model Settings {

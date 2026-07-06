@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { usePolling } from '@/hooks/use-polling';
 import { Banknote, BarChart3, CalendarDays, PawPrint, Receipt, Stethoscope, Users, Warehouse, RefreshCw } from 'lucide-react';
 import { getReportSummary } from '@/actions/report';
 import { formatCurrency } from '@/lib/utils';
@@ -64,6 +65,7 @@ export default function DashboardPage() {
   }, [loadData, role]);
 
   useRefetchOnFocus(loadData);
+  usePolling(loadData, 30000);
 
   const isDoctor = role === 'DOKTER';
   const isOwner = role === 'OWNER';

@@ -2,10 +2,12 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { toast } from 'sonner';
 import { CalendarPlus, CheckCircle2, CircleSlash, PencilLine } from 'lucide-react';
 import { cancelAppointment, createAppointment, listAppointmentLookups, listAppointments, updateAppointment } from '@/actions/appointment';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { usePolling } from '@/hooks/use-polling';
 import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
 
 type AppointmentRow = {
@@ -33,15 +35,11 @@ export default function AppointmentsPage() {
   const [doctors, setDoctors] = useState<LookupOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState('');
-  const [isErrorMessage, setIsErrorMessage] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ petId: '', customerId: '', doctorId: '', date: '', queueNumber: '', status: 'WAITING' as 'WAITING' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED' });
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    setMessage('');
-    setIsErrorMessage(false);
     const [appointmentResult, lookupResult] = await Promise.all([listAppointments(), listAppointmentLookups()]);
     if (appointmentResult.success) {
       const normalizedAppointments = (appointmentResult.appointments ?? []).map((appointment: any) => ({
@@ -63,6 +61,7 @@ export default function AppointmentsPage() {
   }, [loadData]);
 
   useRefetchOnFocus(loadData);
+  usePolling(loadData, 30000);
 
   const availablePets = useMemo(() => {
     if (!form.customerId) {
@@ -92,12 +91,9 @@ export default function AppointmentsPage() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setSaving(true);
-    setMessage('');
-    setIsErrorMessage(false);
 
     if (!form.petId || !form.customerId || !form.date) {
-      setMessage('Pilih hewan, pelanggan, dan tanggal terlebih dahulu.');
-      setIsErrorMessage(true);
+      toast.error('Pilih hewan, pelanggan, dan tanggal terlebih dahulu.');
       setSaving(false);
       return;
     }
@@ -117,41 +113,33 @@ export default function AppointmentsPage() {
     setSaving(false);
 
     if (result.success) {
-      setMessage(editingId ? 'Jadwal diperbarui.' : 'Jadwal ditambahkan.');
-      setIsErrorMessage(false);
+      toast.success(editingId ? 'Jadwal diperbarui.' : 'Jadwal ditambahkan.');
       resetForm();
       await loadData();
       return;
     }
 
-    setMessage(result.message ?? 'Gagal menyimpan jadwal.');
-    setIsErrorMessage(true);
+    toast.error(result.message ?? 'Gagal menyimpan jadwal.');
   }
 
   async function handleStatus(id: string, status: 'IN_PROGRESS' | 'DONE' | 'CANCELLED') {
-    setMessage('');
-    setIsErrorMessage(false);
     const result = await updateAppointment({ id, status });
     if (result.success) {
-      setMessage('Status diperbarui.');
+      toast.success('Status diperbarui.');
       await loadData();
       return;
     }
-    setMessage(result.message ?? 'Gagal memperbarui status.');
-    setIsErrorMessage(true);
+    toast.error(result.message ?? 'Gagal memperbarui status.');
   }
 
   async function handleCancel(id: string) {
-    setMessage('');
-    setIsErrorMessage(false);
     const result = await cancelAppointment({ id });
     if (result.success) {
-      setMessage('Jadwal dibatalkan.');
+      toast.success('Jadwal dibatalkan.');
       await loadData();
       return;
     }
-    setMessage(result.message ?? 'Gagal membatalkan jadwal.');
-    setIsErrorMessage(true);
+    toast.error(result.message ?? 'Gagal membatalkan jadwal.');
   }
 
   const columns: Array<{ key: keyof AppointmentRow; header: string; render?: (row: AppointmentRow) => ReactNode }> = [
@@ -182,8 +170,6 @@ export default function AppointmentsPage() {
         <p className="text-sm text-zinc-500">Modul Appointment</p>
         <h1 className="text-xl font-semibold text-zinc-900">Kelola jadwal pemeriksaan</h1>
       </div>
-
-      {message ? <div className={`rounded-lg border p-3 text-sm ${isErrorMessage ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>{message}</div> : null}
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">

@@ -45,6 +45,23 @@ const settingsSchema = z.object({
   theme: z.string().trim().max(20).optional().or(z.literal('')),
 });
 
+const auditLogBackupSchema = z.object({
+  id: z.string().optional(),
+  userId: z.string().optional(),
+  action: z.string().optional(),
+  entity: z.string().optional(),
+  entityId: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  date: z.string().optional(),
+});
+
+const backupPayloadSchema = z.object({
+  version: z.literal(1),
+  createdAt: z.string().refine((value) => !Number.isNaN(Date.parse(value)), { message: 'createdAt harus tanggal ISO yang valid.' }),
+  settings: settingsSchema.extend({ id: z.string().optional() }).passthrough(),
+  auditLogs: z.array(auditLogBackupSchema).optional(),
+});
+
 const restoreBackupSchema = z.object({
   content: z.string().min(1).max(10_000_000),
 });
@@ -308,7 +325,7 @@ export async function restoreBackup(input: z.infer<typeof restoreBackupSchema>) 
     return { success: false, message: 'Hanya Owner yang dapat melakukan restore.', data: null };
   }
 
-  let payload: any;
+  let payload: unknown;
 
   try {
     payload = JSON.parse(parsed.data.content);
@@ -316,17 +333,16 @@ export async function restoreBackup(input: z.infer<typeof restoreBackupSchema>) 
     return { success: false, message: 'Format file backup tidak valid.', data: null };
   }
 
-  if (!payload || typeof payload !== 'object' || !payload.settings || typeof payload.settings !== 'object') {
+  const backupResult = backupPayloadSchema.safeParse(payload);
+  if (!backupResult.success) {
     return { success: false, message: 'Backup tidak berisi data pengaturan yang valid.', data: null };
   }
 
-  if (payload.version !== 1) {
-    return { success: false, message: 'Versi backup tidak didukung.', data: null };
-  }
+  const backupData = backupResult.data;
 
   try {
     await prisma.$transaction(async (tx) => {
-      const incomingSettings = payload.settings;
+      const incomingSettings = backupData.settings;
       await tx.settings.upsert({
         where: { id: incomingSettings.id ?? 'default-settings' },
         create: {
@@ -406,8 +422,8 @@ export async function restoreBackup(input: z.infer<typeof restoreBackupSchema>) 
         },
       });
 
-      if (Array.isArray(payload.auditLogs)) {
-        for (const record of payload.auditLogs.slice(0, 100)) {
+      if (Array.isArray(backupData.auditLogs)) {
+        for (const record of backupData.auditLogs.slice(0, 100)) {
           await tx.auditLog.create({
             data: {
               userId,

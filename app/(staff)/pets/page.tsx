@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { Eye, Pencil, Plus, Trash2 } from 'lucide-react';
 import { createPet, deletePet, listPets, updatePet } from '@/actions/pet';
 import { listCustomers } from '@/actions/customer';
@@ -48,8 +49,6 @@ export default function PetsPage() {
   const [pets, setPets] = useState<PetRow[]>([]);
   const [customers, setCustomers] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
-  const [isErrorMessage, setIsErrorMessage] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -61,8 +60,6 @@ export default function PetsPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    setMessage('');
-    setIsErrorMessage(false);
 
     const [petsResult, customersResult] = await Promise.all([listPets(), listCustomers()]);
 
@@ -70,8 +67,7 @@ export default function PetsPage() {
       setPets(petsResult.pets as PetRow[]);
     } else {
       setPets([]);
-      setMessage(petsResult.message ?? 'Gagal memuat data hewan.');
-      setIsErrorMessage(true);
+      toast.error(petsResult.message ?? 'Gagal memuat data hewan.');
     }
 
     if (customersResult.success) {
@@ -90,8 +86,6 @@ export default function PetsPage() {
   function openCreate() {
     setEditingId(null);
     setForm(emptyForm);
-    setMessage('');
-    setIsErrorMessage(false);
     setShowForm(true);
   }
 
@@ -107,27 +101,21 @@ export default function PetsPage() {
       photo: pet.photo ?? '',
       weight: '',
     });
-    setMessage('');
-    setIsErrorMessage(false);
     setShowForm(true);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
-    setMessage('');
-    setIsErrorMessage(false);
 
     if (!form.customerId) {
-      setMessage('Pilih pemilik hewan terlebih dahulu.');
-      setIsErrorMessage(true);
+      toast.error('Pilih pemilik hewan terlebih dahulu.');
       setSaving(false);
       return;
     }
 
     if (!form.name.trim() || !form.species.trim()) {
-      setMessage('Nama dan spesies hewan wajib diisi.');
-      setIsErrorMessage(true);
+      toast.error('Nama dan spesies hewan wajib diisi.');
       setSaving(false);
       return;
     }
@@ -135,8 +123,7 @@ export default function PetsPage() {
     if (form.birthDate) {
       const parsedDate = new Date(form.birthDate);
       if (Number.isNaN(parsedDate.getTime())) {
-        setMessage('Tanggal lahir tidak valid.');
-        setIsErrorMessage(true);
+        toast.error('Tanggal lahir tidak valid.');
         setSaving(false);
         return;
       }
@@ -157,13 +144,11 @@ export default function PetsPage() {
     setSaving(false);
 
     if (!result.success) {
-      setMessage(result.message ?? 'Gagal menyimpan data hewan.');
-      setIsErrorMessage(true);
+      toast.error(result.message ?? 'Gagal menyimpan data hewan.');
       return;
     }
 
-    setMessage(editingId ? 'Data hewan diperbarui.' : 'Data hewan ditambahkan.');
-    setIsErrorMessage(false);
+    toast.success(editingId ? 'Data hewan diperbarui.' : 'Data hewan ditambahkan.');
     setShowForm(false);
     await loadData();
   }
@@ -171,14 +156,12 @@ export default function PetsPage() {
   async function handleDelete(id: string) {
     const result = await deletePet({ id });
     if (result.success) {
-      setMessage('Data hewan dihapus.');
-      setIsErrorMessage(false);
+      toast.success('Data hewan dihapus.');
       await loadData();
       return;
     }
 
-    setMessage(result.message ?? 'Gagal menghapus data hewan.');
-    setIsErrorMessage(true);
+    toast.error(result.message ?? 'Gagal menghapus data hewan.');
   }
 
   const speciesOptions = useMemo(() => Array.from(new Set(pets.map((pet) => pet.species).filter(Boolean))), [pets]);
@@ -233,8 +216,6 @@ export default function PetsPage() {
           Tambah Hewan
         </button>
       </div>
-
-      {message ? <div className={`rounded-lg border p-3 text-sm ${isErrorMessage ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>{message}</div> : null}
 
       <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm md:flex-row md:items-end md:justify-between">
         <label className="flex flex-col gap-1 text-sm text-zinc-600">

@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { ArrowRight, Banknote, CheckCircle2, Printer, Search, ShoppingBag } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { createPosSale, searchProducts } from '@/actions/pos';
 import { getInvoiceLookups } from '@/actions/invoice';
 import { calculatePosTotals } from '@/lib/pos';
+import { usePolling } from '@/hooks/use-polling';
+import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
 
 type ProductRow = {
   id: string;
@@ -36,21 +39,20 @@ export default function PosPage() {
   const [discountAmount, setDiscountAmount] = useState('0');
   const [paymentAmount, setPaymentAmount] = useState('0');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'NON_CASH'>('CASH');
-  const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [taxRate, setTaxRate] = useState('0');
   const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
 
-  useEffect(() => {
-    void loadCustomers();
-  }, []);
-
-  async function loadCustomers() {
+  const loadCustomers = useCallback(async () => {
     const result = await getInvoiceLookups();
     if (result.success) {
       setCustomers(result.customers ?? []);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    void loadCustomers();
+  }, [loadCustomers]);
 
   async function handleSearch(event: React.FormEvent) {
     event.preventDefault();
@@ -59,16 +61,15 @@ export default function PosPage() {
     const result = await searchProducts({ query: searchQuery });
     if (result.success) {
       setProducts(result.products ?? []);
-      setMessage('');
       return;
     }
     setProducts([]);
-    setMessage(result.message ?? 'Pencarian gagal.');
+    toast.error(result.message ?? 'Pencarian gagal.');
   }
 
   function addToCart(product: ProductRow) {
     if (product.stock <= 0) {
-      setMessage('Stok produk tidak cukup.');
+      toast.error('Stok produk tidak cukup.');
       return;
     }
 
@@ -107,15 +108,15 @@ export default function PosPage() {
   async function handleCheckout(event: React.FormEvent) {
     event.preventDefault();
     if (!customerId) {
-      setMessage('Pilih pelanggan terlebih dahulu.');
+      toast.error('Pilih pelanggan terlebih dahulu.');
       return;
     }
     if (cart.length === 0) {
-      setMessage('Keranjang kosong.');
+      toast.error('Keranjang kosong.');
       return;
     }
     if (payment < totals.totalAmount) {
-      setMessage('Jumlah pembayaran kurang dari total transaksi.');
+      toast.error('Jumlah pembayaran kurang dari total transaksi.');
       return;
     }
 
@@ -135,7 +136,7 @@ export default function PosPage() {
     });
 
     if (!result.success) {
-      setMessage(result.message ?? 'Gagal menyimpan transaksi.');
+      toast.error(result.message ?? 'Gagal menyimpan transaksi.');
       setSubmitting(false);
       return;
     }
@@ -145,9 +146,12 @@ export default function PosPage() {
     setDiscountAmount('0');
     setPaymentAmount('0');
     setTaxRate('0');
-    setMessage(`Transaksi berhasil. Kembalian ${formatCurrency(change)}.`);
+    toast.success(`Transaksi berhasil. Kembalian ${formatCurrency(change)}.`);
     setSubmitting(false);
   }
+
+  useRefetchOnFocus(loadCustomers);
+  usePolling(loadCustomers, 30000);
 
   function handlePrint() {
     if (!createdInvoice) return;
@@ -175,8 +179,6 @@ export default function PosPage() {
           </div>
         </div>
       </div>
-
-      {message ? <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">{message}</div> : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <section className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">

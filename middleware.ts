@@ -1,7 +1,64 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 
+const loginRateLimitWindowMs = 15 * 60 * 1000;
+const loginRateLimitMaxAttempts = 5;
+const loginAttempts = new Map<string, { count: number; firstAttempt: number }>();
+
+function getClientIp(request: NextRequest) {
+  return (
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    request.headers.get('x-forwarded-proto') ||
+    'unknown'
+  );
+}
+
+function isRateLimited(key: string) {
+  const record = loginAttempts.get(key);
+  if (!record) return false;
+
+  const elapsed = Date.now() - record.firstAttempt;
+  if (elapsed > loginRateLimitWindowMs) {
+    loginAttempts.delete(key);
+    return false;
+  }
+
+  return record.count >= loginRateLimitMaxAttempts;
+}
+
+function incrementRateLimit(key: string) {
+  const record = loginAttempts.get(key);
+  if (!record) {
+    loginAttempts.set(key, { count: 1, firstAttempt: Date.now() });
+    return;
+  }
+
+  const elapsed = Date.now() - record.firstAttempt;
+  if (elapsed > loginRateLimitWindowMs) {
+    loginAttempts.set(key, { count: 1, firstAttempt: Date.now() });
+  } else {
+    record.count += 1;
+    loginAttempts.set(key, record);
+  }
+}
+
 export async function middleware(request: NextRequest) {
+  if (request.nextUrl.pathname === '/api/auth/callback/credentials' && request.method === 'POST') {
+    const ip = getClientIp(request);
+    const key = `credentials:${ip}`;
+    if (isRateLimited(key)) {
+      return new NextResponse('Too many requests', {
+        status: 429,
+        headers: {
+          'Retry-After': String(Math.ceil(loginRateLimitWindowMs / 1000)),
+          'Cache-Control': 'no-store, private',
+        },
+      });
+    }
+    incrementRateLimit(key);
+  }
+
   return proxy(request);
 }
 
@@ -29,7 +86,7 @@ export async function proxy(request: NextRequest) {
 
   const token = await getToken({
     req: request,
-    secret: process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET,
+    secret: process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET ?? undefined,
   });
 
   const role = typeof token?.role === 'string' ? token.role : undefined;

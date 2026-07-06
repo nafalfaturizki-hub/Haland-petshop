@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import Link from 'next/link';
 import { Plus, Eye, Trash2, Pencil } from 'lucide-react';
+import { toast } from 'sonner';
 import { createCustomer, deleteCustomer, listCustomers, updateCustomer } from '@/actions/customer';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -34,8 +35,6 @@ const emptyForm: CustomerForm = { name: '', phone: '', address: '', notes: '', c
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
-  const [isErrorMessage, setIsErrorMessage] = useState(false);
   const [temporaryPin, setTemporaryPin] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -46,16 +45,13 @@ export default function CustomersPage() {
 
   const loadCustomers = useCallback(async () => {
     setLoading(true);
-    setMessage('');
-    setIsErrorMessage(false);
     const result = await listCustomers();
 
     if (result.success) {
       setCustomers(result.customers as CustomerRow[]);
     } else {
       setCustomers([]);
-      setMessage(result.message ?? 'Gagal memuat data pelanggan.');
-      setIsErrorMessage(true);
+      toast.error(result.message ?? 'Gagal memuat data pelanggan.');
     }
 
     setLoading(false);
@@ -70,16 +66,12 @@ export default function CustomersPage() {
   function openCreate() {
     setEditingId(null);
     setForm(emptyForm);
-    setMessage('');
-    setIsErrorMessage(false);
     setTemporaryPin(null);
     setShowForm(true);
   }
 
   function openEdit(customer: CustomerRow) {
     setEditingId(customer.id);
-    setMessage('');
-    setIsErrorMessage(false);
     setTemporaryPin(null);
     setForm({
       name: customer.name,
@@ -96,22 +88,18 @@ export default function CustomersPage() {
     event.preventDefault();
     setSaving(true);
     setTemporaryPin(null);
-    setMessage('');
-    setIsErrorMessage(false);
 
     const trimmedName = form.name.trim();
     const trimmedUsername = form.username.trim();
 
     if (!trimmedName) {
-      setMessage('Nama pelanggan wajib diisi.');
-      setIsErrorMessage(true);
+      toast.error('Nama pelanggan wajib diisi.');
       setSaving(false);
       return;
     }
 
     if (form.createLogin && !trimmedUsername) {
-      setMessage('Username wajib diisi saat membuat akun login.');
-      setIsErrorMessage(true);
+      toast.error('Username wajib diisi saat membuat akun login.');
       setSaving(false);
       return;
     }
@@ -132,9 +120,7 @@ export default function CustomersPage() {
     setSaving(false);
 
     if (!result.success) {
-      setMessage(result.message ?? 'Gagal menyimpan pelanggan.');
-      setIsErrorMessage(true);
-      setSaving(false);
+      toast.error(result.message ?? 'Gagal menyimpan pelanggan.');
       return;
     }
 
@@ -142,8 +128,7 @@ export default function CustomersPage() {
       setTemporaryPin(result.temporaryPin as string);
     }
 
-    setMessage(editingId ? 'Data pelanggan diperbarui.' : 'Pelanggan ditambahkan.');
-    setIsErrorMessage(false);
+    toast.success(editingId ? 'Data pelanggan diperbarui.' : 'Pelanggan ditambahkan.');
     setShowForm(false);
     await loadCustomers();
   }
@@ -151,13 +136,11 @@ export default function CustomersPage() {
   async function handleDelete(id: string) {
     const result = await deleteCustomer({ id });
     if (result.success) {
-      setMessage('Pelanggan dihapus.');
-      setIsErrorMessage(false);
+      toast.success('Pelanggan dihapus.');
       await loadCustomers();
       return;
     }
-    setMessage(result.message ?? 'Gagal menghapus pelanggan.');
-    setIsErrorMessage(true);
+    toast.error(result.message ?? 'Gagal menghapus pelanggan.');
   }
 
   const columns: Array<{ key: keyof CustomerRow; header: string; render?: (row: CustomerRow) => ReactNode }> = [
@@ -212,7 +195,6 @@ export default function CustomersPage() {
         </button>
       </div>
 
-      {message ? <div className={`rounded-lg border p-3 text-sm ${isErrorMessage ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>{message}</div> : null}
       {temporaryPin ? (
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           PIN awal akun pelanggan: <span className="font-mono font-semibold">{temporaryPin}</span> — catat sekarang, hanya ditampilkan sekali.
