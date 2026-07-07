@@ -8,6 +8,7 @@ import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
 import { getActorRole, getActorId, roundCurrency, normalizeOptionalText } from '@/lib/utils';
 import { generateInvoiceNumber } from '@/lib/numbering';
+import { deductProductStock, restoreProductStock, validateStockAvailability } from '@/lib/inventory-helpers';
 
 const invoiceItemSchema = z.object({
   type: z.enum(['KONSULTASI', 'TINDAKAN', 'OBAT', 'PET_HOTEL', 'PRODUK']),
@@ -189,6 +190,17 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
     .filter((item) => item.type === 'TINDAKAN' && item.procedureId)
     .map((item) => item.procedureId as string);
 
+  const productStockDeductionItems = parsed.data.items
+    .filter((item) => item.type === 'PRODUK' && item.productId)
+    .map((item) => ({ productId: item.productId as string, qty: item.qty }));
+
+  if (productStockDeductionItems.length > 0) {
+    const stockAvailability = await validateStockAvailability(prisma as any, productStockDeductionItems);
+    if (!stockAvailability.ok) {
+      return { success: false, message: stockAvailability.message };
+    }
+  }
+
   const [products, procedures] = await Promise.all([
     Promise.all(productIds.map((productId) => prisma.product.findUnique({ where: { id: productId } }))),
     Promise.all(procedureIds.map((procedureId) => prisma.procedure.findUnique({ where: { id: procedureId } }))),
@@ -277,54 +289,70 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
 
   const status = initialPaymentAmount <= 0 ? 'UNPAID' : initialPaymentAmount >= totalAmount ? 'PAID' : 'PARTIAL_PAYMENT';
 
-  const invoice = await prisma.$transaction(async (tx) => {
-    const createdInvoice = await tx.invoice.create({
-      data: {
-        customerId: parsed.data.customerId,
-        appointmentId: parsed.data.appointmentId || null,
-        medicalRecordId: parsed.data.medicalRecordId || null,
-        petId: parsed.data.petId || null,
-        doctorId: parsed.data.doctorId || null,
-        invoiceNumber,
-        status,
-        subtotal,
-        discountAmount,
-        taxRate,
-        taxAmount,
-        totalAmount,
-        notes: normalizeOptionalText(parsed.data.notes),
-        createdById: actorId,
-        items: {
-          create: invoiceItems.map((item) => ({
-            type: item.type,
-            description: item.description,
-            qty: item.qty,
-            price: item.price,
-            subtotal: item.subtotal,
-            productId: item.productId,
-            procedureId: item.procedureId,
-          })),
-        },
-        ...(initialPaymentAmount > 0
-          ? {
-              payments: {
-                create: {
-                  method: initialPaymentMethod,
-                  amount: initialPaymentAmount,
-                },
-              },
-            }
-          : {}),
-      },
-      include: {
-        customer: true,
-        items: true,
-        payments: true,
-      },
-    });
+  let invoice;
 
-    return createdInvoice;
-  });
+  try {
+    invoice = await prisma.$transaction(async (tx) => {
+      const createdInvoice = await tx.invoice.create({
+        data: {
+          customerId: parsed.data.customerId,
+          appointmentId: parsed.data.appointmentId || null,
+          medicalRecordId: parsed.data.medicalRecordId || null,
+          petId: parsed.data.petId || null,
+          doctorId: parsed.data.doctorId || null,
+          invoiceNumber,
+          status,
+          subtotal,
+          discountAmount,
+          taxRate,
+          taxAmount,
+          totalAmount,
+          notes: normalizeOptionalText(parsed.data.notes),
+          createdById: actorId,
+          items: {
+            create: invoiceItems.map((item) => ({
+              type: item.type,
+              description: item.description,
+              qty: item.qty,
+              price: item.price,
+              subtotal: item.subtotal,
+              productId: item.productId,
+              procedureId: item.procedureId,
+            })),
+          },
+          ...(initialPaymentAmount > 0
+            ? {
+                payments: {
+                  create: {
+                    method: initialPaymentMethod,
+                    amount: initialPaymentAmount,
+                  },
+                },
+              }
+            : {}),
+        },
+        include: {
+          customer: true,
+          items: true,
+          payments: true,
+        },
+      });
+
+      if (productStockDeductionItems.length > 0) {
+        const deductionResult = await deductProductStock(tx, productStockDeductionItems);
+        if (!deductionResult.ok) {
+          throw new Error('Stok produk berubah, transaksi dibatalkan.');
+        }
+      }
+
+      return createdInvoice;
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Stok produk berubah, transaksi dibatalkan.') {
+      return { success: false, message: 'Stok produk berubah saat transaksi diproses, silakan coba lagi.' };
+    }
+    throw error;
+  }
 
   await createAuditLog(actorId, 'CREATE', 'Invoice', invoice.id, `Membuat invoice ${invoice.invoiceNumber}`);
   await notifyInvoiceChange(customer.userId, 'Invoice dibuat', `Invoice ${invoice.invoiceNumber} telah dibuat untuk Anda.`);
@@ -418,7 +446,10 @@ export async function cancelInvoice(input: z.infer<typeof cancelInvoiceSchema>) 
     return { success: false, message: 'Anda tidak berwenang membatalkan invoice.' };
   }
 
-  const invoice = await prisma.invoice.findUnique({ where: { id: parsed.data.id } });
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: parsed.data.id },
+    include: { items: true },
+  });
   if (!invoice) {
     return { success: false, message: 'Invoice tidak ditemukan.' };
   }
@@ -431,10 +462,22 @@ export async function cancelInvoice(input: z.infer<typeof cancelInvoiceSchema>) 
     return { success: false, message: 'Invoice yang sudah lunas tidak bisa dibatalkan.' };
   }
 
-  const updatedInvoice = await prisma.invoice.update({
-    where: { id: parsed.data.id },
-    data: { status: 'CANCELLED' },
-    include: { customer: true, items: true, payments: true },
+  const productStockDeductionItems = invoice.items
+    .filter((item) => item.type === 'PRODUK' && item.productId)
+    .map((item) => ({ productId: item.productId as string, qty: item.qty }));
+
+  const updatedInvoice = await prisma.$transaction(async (tx) => {
+    const updated = await tx.invoice.update({
+      where: { id: parsed.data.id },
+      data: { status: 'CANCELLED' },
+      include: { customer: true, items: true, payments: true },
+    });
+
+    if (productStockDeductionItems.length > 0) {
+      await restoreProductStock(tx, productStockDeductionItems);
+    }
+
+    return updated;
   });
 
   await createAuditLog(actorId, 'CANCEL', 'Invoice', updatedInvoice.id, `Membatalkan invoice ${updatedInvoice.invoiceNumber}`);

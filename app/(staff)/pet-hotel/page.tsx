@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { DoorOpen, CalendarDays, NotebookPen, Search } from 'lucide-react';
+import { formatCurrency } from '@/lib/utils';
 import { cancelPetHotelBooking, checkInPetHotelBooking, checkOutPetHotelBooking, createPetHotelBooking, createPetHotelLog, createPetHotelRoom, deletePetHotelRoom, listPetHotelBookings, listPetHotelLogs, listPetHotelPets, listPetHotelRooms, updatePetHotelRoom } from '@/actions/pet-hotel';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -12,6 +13,7 @@ type RoomRow = {
   name: string;
   roomNumber?: string | null;
   roomType?: string | null;
+  pricePerNight?: number | null;
   capacity?: number | null;
   status: string;
   cleaningStatus?: string | null;
@@ -44,7 +46,7 @@ export default function PetHotelPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [roomForm, setRoomForm] = useState({ name: '', roomNumber: '', roomType: 'STANDARD', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' });
+  const [roomForm, setRoomForm] = useState({ name: '', roomNumber: '', roomType: 'STANDARD', pricePerNight: '100000', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' });
   const [bookingForm, setBookingForm] = useState({ petId: '', roomId: '', checkInDate: '', checkOutDate: '', notes: '' });
   const [selectedBookingId, setSelectedBookingId] = useState<string>('');
   const [logForm, setLogForm] = useState({ type: 'NOTE' as 'FEEDING' | 'MEDICINE' | 'NOTE', description: '' });
@@ -61,6 +63,7 @@ export default function PetHotelPage() {
           name: r.name,
           roomNumber: r.roomNumber ?? null,
           roomType: r.roomType ?? null,
+          pricePerNight: r.pricePerNight ?? 100000,
           capacity: r.capacity ?? 1,
           status: r.status,
           cleaningStatus: r.cleaningStatus ?? null,
@@ -118,6 +121,7 @@ export default function PetHotelPage() {
       name: roomForm.name,
       roomNumber: roomForm.roomNumber || undefined,
       roomType: roomForm.roomType,
+      pricePerNight: Number(roomForm.pricePerNight),
       capacity: Number(roomForm.capacity),
       status: roomForm.status as any,
       cleaningStatus: roomForm.cleaningStatus as any,
@@ -128,7 +132,7 @@ export default function PetHotelPage() {
     if (result.success) {
       setMessage(editingId ? 'Kamar diperbarui.' : 'Kamar ditambahkan.');
       setEditingId(null);
-      setRoomForm({ name: '', roomNumber: '', roomType: 'STANDARD', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' });
+      setRoomForm({ name: '', roomNumber: '', roomType: 'STANDARD', pricePerNight: '100000', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' });
       await loadData();
       return;
     }
@@ -215,6 +219,7 @@ export default function PetHotelPage() {
       name: room.name,
       roomNumber: room.roomNumber ?? '',
       roomType: room.roomType ?? 'STANDARD',
+      pricePerNight: String(room.pricePerNight ?? 100000),
       capacity: String(room.capacity ?? 1),
       status: room.status as any,
       cleaningStatus: room.cleaningStatus ?? 'CLEAN',
@@ -236,6 +241,7 @@ export default function PetHotelPage() {
   const roomColumns: Array<{ key: keyof RoomRow; header: string; render?: (row: RoomRow) => ReactNode }> = [
     { key: 'name', header: 'Nama Kamar', render: (row) => <div><div className="font-medium text-zinc-900">{row.name}</div><div className="text-xs text-zinc-500">{row.roomNumber ? `No. ${row.roomNumber}` : 'Tanpa nomor'} • {row.roomType ?? 'STANDARD'}</div></div> },
     { key: 'status', header: 'Status', render: (row) => <span className={`rounded-full px-2 py-1 text-xs font-medium ${row.status === 'AVAILABLE' ? 'bg-emerald-100 text-emerald-700' : row.status === 'OCCUPIED' ? 'bg-amber-100 text-amber-700' : row.status === 'RESERVED' ? 'bg-blue-100 text-blue-700' : 'bg-zinc-100 text-zinc-700'}`}>{row.status}</span> },
+    { key: 'pricePerNight', header: 'Harga/malam', render: (row) => formatCurrency(row.pricePerNight ?? 0) },
     { key: 'occupancy', header: 'Penghuni', render: (row) => `${row.occupancy}/${row.capacity ?? 1}` },
     { key: 'id', header: 'Aksi', render: (row) => <div className="flex flex-wrap gap-2"><button type="button" onClick={() => handleEditRoom(row)} className="rounded-lg border border-zinc-200 px-2 py-1 text-xs text-zinc-700">Edit</button><button type="button" onClick={() => void handleDeleteRoom(row.id)} className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-600">Hapus</button></div> },
   ];
@@ -312,6 +318,16 @@ export default function PetHotelPage() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm text-zinc-600">
+                Harga per malam (Rp)
+                <input type="number" min="0" value={roomForm.pricePerNight} onChange={(e) => setRoomForm({ ...roomForm, pricePerNight: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+              <label className="block text-sm text-zinc-600">
+                Kapasitas
+                <input type="number" min="1" max="10" value={roomForm.capacity} onChange={(e) => setRoomForm({ ...roomForm, capacity: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm text-zinc-600">
                 Kapasitas
                 <input type="number" min="1" max="10" value={roomForm.capacity} onChange={(e) => setRoomForm({ ...roomForm, capacity: e.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
               </label>
@@ -351,7 +367,7 @@ export default function PetHotelPage() {
               </button>
               {editingId ? (
                 <>
-                  <button type="button" onClick={() => { setEditingId(null); setRoomForm({ name: '', roomNumber: '', roomType: 'STANDARD', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' }); }} className="rounded-lg border border-zinc-200 px-4 py-2 text-sm text-zinc-700">
+                  <button type="button" onClick={() => { setEditingId(null); setRoomForm({ name: '', roomNumber: '', roomType: 'STANDARD', pricePerNight: '100000', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' }); }} className="rounded-lg border border-zinc-200 px-4 py-2 text-sm text-zinc-700">
                     Batal
                   </button>
                   <button type="button" onClick={() => { if (window.confirm('Hapus kamar ini?')) void handleDeleteRoom(editingId); }} className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-600">

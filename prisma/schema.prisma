@@ -263,6 +263,7 @@ model PetHotelRoom {
   name              String
   roomNumber        String?
   roomType          String             @default("STANDARD")
+  pricePerNight     Float              @default(100000)
   capacity          Int                @default(1)
   status            PetHotelRoomStatus @default(AVAILABLE)
   cleaningStatus    String             @default("CLEAN")

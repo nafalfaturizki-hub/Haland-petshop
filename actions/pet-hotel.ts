@@ -14,6 +14,7 @@ const petHotelRoomSchema = z.object({
   name: z.string().trim().min(1, 'Nama kamar wajib diisi.').max(100),
   roomNumber: z.string().trim().max(20).optional().or(z.literal('')),
   roomType: z.string().trim().max(50).optional().or(z.literal('')),
+  pricePerNight: z.coerce.number().positive('Harga per malam harus lebih dari 0.'),
   capacity: z.coerce.number().int().min(1).max(10).optional(),
   status: z.enum(['AVAILABLE', 'RESERVED', 'OCCUPIED', 'MAINTENANCE', 'INACTIVE']).optional(),
   cleaningStatus: z.enum(['CLEAN', 'DIRTY', 'INSPECTION']).optional(),
@@ -22,6 +23,7 @@ const petHotelRoomSchema = z.object({
 
 const updatePetHotelRoomSchema = petHotelRoomSchema.extend({
   id: z.string().trim().min(1, 'Kamar tidak valid.'),
+  pricePerNight: z.coerce.number().positive('Harga per malam harus lebih dari 0.').optional(),
 });
 
 const petHotelBookingSchema = z.object({
@@ -194,6 +196,7 @@ export async function createPetHotelRoom(input: z.infer<typeof petHotelRoomSchem
       name: parsed.data.name,
       roomNumber: normalizeOptionalText(parsed.data.roomNumber),
       roomType: normalizeOptionalText(parsed.data.roomType) ?? 'STANDARD',
+      pricePerNight: parsed.data.pricePerNight,
       capacity: parsed.data.capacity ?? 1,
       status: parsed.data.status ?? 'AVAILABLE',
       cleaningStatus: parsed.data.cleaningStatus ?? 'CLEAN',
@@ -220,17 +223,23 @@ export async function updatePetHotelRoom(input: z.infer<typeof updatePetHotelRoo
     return { success: false, message: 'Anda tidak berwenang mengubah kamar.' };
   }
 
+  const roomData: Record<string, unknown> = {
+    name: parsed.data.name,
+    roomNumber: normalizeOptionalText(parsed.data.roomNumber),
+    roomType: normalizeOptionalText(parsed.data.roomType) ?? 'STANDARD',
+    capacity: parsed.data.capacity ?? 1,
+    status: parsed.data.status ?? 'AVAILABLE',
+    cleaningStatus: parsed.data.cleaningStatus ?? 'CLEAN',
+    maintenanceStatus: parsed.data.maintenanceStatus ?? 'OPERATIONAL',
+  };
+
+  if (parsed.data.pricePerNight !== undefined) {
+    roomData.pricePerNight = parsed.data.pricePerNight;
+  }
+
   const room = await prisma.petHotelRoom.update({
     where: { id: parsed.data.id },
-    data: {
-      name: parsed.data.name,
-      roomNumber: normalizeOptionalText(parsed.data.roomNumber),
-      roomType: normalizeOptionalText(parsed.data.roomType) ?? 'STANDARD',
-      capacity: parsed.data.capacity ?? 1,
-      status: parsed.data.status ?? 'AVAILABLE',
-      cleaningStatus: parsed.data.cleaningStatus ?? 'CLEAN',
-      maintenanceStatus: parsed.data.maintenanceStatus ?? 'OPERATIONAL',
-    },
+    data: roomData,
   });
 
   await createAuditLog(actorId, 'UPDATE', 'PetHotelRoom', room.id, `Memperbarui kamar ${room.name}`);
@@ -604,7 +613,7 @@ export async function checkOutPetHotelBooking(id: string) {
 
   const booking = await prisma.petHotelBooking.findUnique({
     where: { id },
-    include: { pet: { select: { id: true, name: true, customerId: true } }, room: { select: { id: true, name: true } } },
+    include: { pet: { select: { id: true, name: true, customerId: true } }, room: true },
   });
 
   if (!booking) {
@@ -652,7 +661,12 @@ export async function checkOutPetHotelBooking(id: string) {
   await createInvoice({
     customerId: booking.pet.customerId,
     petId: booking.pet.id,
-    items: [{ type: 'PET_HOTEL', description: `Penginapan ${booking.pet.name}`, qty: invoiceDays, price: HOTEL_DAILY_RATE }],
+    items: [{
+      type: 'PET_HOTEL',
+      description: `Penginapan ${booking.pet.name}`,
+      qty: invoiceDays,
+      price: booking.room?.pricePerNight ?? HOTEL_DAILY_RATE,
+    }],
     notes: `Penginapan pet hotel untuk ${booking.pet.name}`,
   });
 

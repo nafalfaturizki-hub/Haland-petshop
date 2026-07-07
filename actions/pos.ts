@@ -9,6 +9,7 @@ import { isStaffRole } from '@/lib/permissions';
 import { calculatePosTotals, getPaymentStatus, roundCurrency } from '@/lib/pos';
 import { getActorRole } from '@/lib/utils';
 import { generateInvoiceNumber } from '@/lib/numbering';
+import { deductProductStock, validateStockAvailability } from '@/lib/inventory-helpers';
 
 const productSearchSchema = z.object({
   query: z.string().trim().min(1, 'Pencarian tidak boleh kosong.'),
@@ -116,6 +117,15 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
 
   const invoiceNumber = await generateInvoiceNumber();
 
+  const productStockDeductionItems = items.map((item) => ({ productId: item.productId, qty: item.qty }));
+
+  if (productStockDeductionItems.length > 0) {
+    const stockAvailability = await validateStockAvailability(prisma as any, productStockDeductionItems);
+    if (!stockAvailability.ok) {
+      return { success: false, message: stockAvailability.message };
+    }
+  }
+
   try {
     const invoiceResult = await prisma.$transaction(async (tx) => {
       const productLookups = await Promise.all(
@@ -126,10 +136,6 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
         const product = productLookups[index];
         if (!product) {
           throw new Error(`Produk ${item.description} tidak ditemukan.`);
-        }
-
-        if (product.stock < item.qty) {
-          throw new Error(`Stok produk ${product.name} tidak cukup.`);
         }
 
         if (roundCurrency(item.price) !== roundCurrency(product.sellPrice)) {
@@ -189,16 +195,12 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
         },
       });
 
+      const deductionResult = await deductProductStock(tx, productStockDeductionItems);
+      if (!deductionResult.ok) {
+        throw new Error('Stok produk berubah, transaksi dibatalkan.');
+      }
+
       for (const item of validatedItems) {
-        const result = await tx.product.updateMany({
-          where: { id: item.product.id, stock: { gte: item.qty } },
-          data: { stock: { decrement: item.qty } },
-        });
-
-        if (result.count === 0) {
-          throw new Error('Stok produk tidak mencukupi atau berubah, transaksi dibatalkan.');
-        }
-
         await tx.stockMovement.create({
           data: {
             productId: item.product.id,
