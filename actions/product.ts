@@ -7,6 +7,25 @@ import { prisma } from '@/lib/db';
 import { isStaffRole } from '@/lib/permissions';
 import { getActorRole, getActorId, normalizeOptionalText } from '@/lib/utils';
 
+export type ParsedProductRow = {
+  name: string;
+  sku?: string;
+  barcode?: string;
+  brand?: string;
+  categoryName?: string;
+  supplierName?: string;
+  buyPrice?: string;
+  sellPrice?: string;
+  costPrice?: string;
+  stock?: string;
+  minStock?: string;
+  maxStock?: string;
+  unit?: string;
+  status?: string;
+  description?: string;
+  imageUrl?: string;
+};
+
 const productSchema = z.object({
   name: z.string().trim().min(1, 'Nama produk wajib diisi.').max(200),
   sku: z.string().trim().max(100).optional().or(z.literal('')),
@@ -33,6 +52,31 @@ const updateProductSchema = productSchema.extend({
 const categorySchema = z.object({
   name: z.string().trim().min(1, 'Nama kategori wajib diisi.').max(100),
 });
+
+const importProductRowSchema = productSchema.extend({
+  name: z.string().trim().min(1, 'Nama produk wajib diisi.').max(200),
+  categoryName: z.string().trim().optional().or(z.literal('')),
+  supplierName: z.string().trim().optional().or(z.literal('')),
+  buyPrice: z.string().trim().optional().or(z.literal('')),
+  sellPrice: z.string().trim().optional().or(z.literal('')),
+  costPrice: z.string().trim().optional().or(z.literal('')),
+  stock: z.string().trim().optional().or(z.literal('')),
+  minStock: z.string().trim().optional().or(z.literal('')),
+  maxStock: z.string().trim().optional().or(z.literal('')),
+  unit: z.string().trim().optional().or(z.literal('')),
+  status: z.string().trim().optional().or(z.literal('ACTIVE')),
+}).transform((row) => ({
+  ...row,
+  buyPrice: Number(row.buyPrice ?? 0),
+  sellPrice: Number(row.sellPrice ?? 0),
+  costPrice: Number(row.costPrice ?? row.buyPrice ?? 0),
+  stock: Number(row.stock ?? 0),
+  minStock: Number(row.minStock ?? 0),
+  maxStock: row.maxStock ? Number(row.maxStock) : undefined,
+  status: (row.status ?? 'ACTIVE') === 'ARCHIVED' ? 'ARCHIVED' : 'ACTIVE',
+  categoryId: row.categoryName || undefined,
+  supplierId: row.supplierName || undefined,
+}));
 
 const updateCategorySchema = categorySchema.extend({
   id: z.string().min(1),
@@ -383,6 +427,181 @@ export async function updateProduct(input: z.infer<typeof updateProductSchema>) 
   revalidatePath('/petshop/products');
   revalidatePath('/petshop/inventory');
   return { success: true, product };
+}
+
+export async function exportProductsToCsv() {
+  const session = await auth();
+  const actorRole = getActorRole(session);
+  const actorId = getActorId(session);
+
+  if (!actorId || !isStaffRole(actorRole)) {
+    return { success: false, message: 'Anda tidak berwenang mengekspor produk.' };
+  }
+
+  const products = await prisma.product.findMany({
+    where: { isArchived: false },
+    orderBy: { name: 'asc' },
+    include: {
+      category: { select: { name: true } },
+      supplier: { select: { name: true } },
+    },
+  });
+
+  const rows = products.map((product) => ({
+    name: product.name,
+    sku: product.sku ?? '',
+    barcode: product.barcode ?? '',
+    brand: product.brand ?? '',
+    categoryName: product.category?.name ?? '',
+    supplierName: product.supplier?.name ?? '',
+    buyPrice: product.buyPrice,
+    sellPrice: product.sellPrice,
+    stock: product.stock,
+    minStock: product.minStock,
+    maxStock: product.maxStock ?? '',
+    unit: product.unit ?? '',
+    status: product.status,
+  }));
+
+  return { success: true, rows };
+}
+
+export async function importProductsFromCsv(rows: ParsedProductRow[]) {
+  const session = await auth();
+  const actorRole = getActorRole(session);
+  const actorId = getActorId(session);
+
+  if (!actorId || !isStaffRole(actorRole)) {
+    return { success: false, message: 'Anda tidak berwenang mengimpor produk.' };
+  }
+
+  if (actorRole === 'DOKTER') {
+    return { success: false, message: 'Dokter tidak dapat mengimpor produk.' };
+  }
+
+  const normalizedRows: Array<{ row: ParsedProductRow; parsed?: any; error?: string }> = [];
+  for (const row of rows) {
+    const parsed = importProductRowSchema.safeParse(row);
+    if (!parsed.success) {
+      normalizedRows.push({ row, error: parsed.error.issues[0]?.message ?? 'Data tidak valid.' });
+      continue;
+    }
+    normalizedRows.push({ row, parsed: parsed.data });
+  }
+
+  const results = { created: 0, updated: 0, failed: 0, failures: [] as Array<{ row: number; reason: string }> };
+
+  for (let index = 0; index < normalizedRows.length; index += 50) {
+    const batch = normalizedRows.slice(index, index + 50);
+    await prisma.$transaction(async (tx) => {
+      for (const [batchIndex, entry] of batch.entries()) {
+        const rowNumber = index + batchIndex + 2;
+        if (entry.error) {
+          results.failed += 1;
+          results.failures.push({ row: rowNumber, reason: entry.error });
+          continue;
+        }
+
+        const payload = entry.parsed as any;
+        const normalizedSku = normalizeOptionalText(payload.sku)?.toUpperCase() ?? null;
+        const normalizedBarcode = normalizeOptionalText(payload.barcode) ?? null;
+
+        if (payload.sellPrice < Math.max(payload.buyPrice, payload.costPrice ?? 0)) {
+          results.failed += 1;
+          results.failures.push({ row: rowNumber, reason: 'Harga jual tidak boleh di bawah harga pokok atau harga beli.' });
+          continue;
+        }
+
+        const category = payload.categoryName ? await tx.productCategory.findFirst({ where: { name: { equals: payload.categoryName.trim(), mode: 'insensitive' } } }) : null;
+        if (payload.categoryName && !category) {
+          results.failed += 1;
+          results.failures.push({ row: rowNumber, reason: 'kategori tidak ditemukan' });
+          continue;
+        }
+
+        const supplier = payload.supplierName ? await tx.supplier.findFirst({ where: { name: { equals: payload.supplierName.trim(), mode: 'insensitive' } } }) : null;
+        if (payload.supplierName && !supplier) {
+          results.failed += 1;
+          results.failures.push({ row: rowNumber, reason: 'supplier tidak ditemukan' });
+          continue;
+        }
+
+        const existing = await tx.product.findFirst({
+          where: {
+            OR: [
+              ...(normalizedSku ? [{ sku: normalizedSku }] : []),
+              ...(normalizedBarcode ? [{ barcode: normalizedBarcode }] : []),
+            ],
+          },
+          select: { id: true, name: true },
+        });
+
+        if (existing) {
+          await tx.product.update({
+            where: { id: existing.id },
+            data: {
+              name: payload.name,
+              sku: normalizedSku,
+              barcode: normalizedBarcode,
+              brand: normalizeOptionalText(payload.brand),
+              description: normalizeOptionalText(payload.description),
+              categoryId: category?.id ?? null,
+              supplierId: supplier?.id ?? null,
+              unit: normalizeOptionalText(payload.unit),
+              buyPrice: payload.buyPrice,
+              sellPrice: payload.sellPrice,
+              costPrice: payload.costPrice ?? payload.buyPrice,
+              stock: payload.stock,
+              minStock: payload.minStock,
+              maxStock: payload.maxStock ?? null,
+              status: payload.status ?? 'ACTIVE',
+              imageUrl: normalizeOptionalText(payload.imageUrl),
+              isArchived: (payload.status ?? 'ACTIVE') === 'ARCHIVED',
+            },
+          });
+          results.updated += 1;
+        } else {
+          await tx.product.create({
+            data: {
+              name: payload.name,
+              sku: normalizedSku,
+              barcode: normalizedBarcode,
+              brand: normalizeOptionalText(payload.brand),
+              description: normalizeOptionalText(payload.description),
+              categoryId: category?.id ?? null,
+              supplierId: supplier?.id ?? null,
+              unit: normalizeOptionalText(payload.unit),
+              buyPrice: payload.buyPrice,
+              sellPrice: payload.sellPrice,
+              costPrice: payload.costPrice ?? payload.buyPrice,
+              stock: payload.stock,
+              minStock: payload.minStock,
+              maxStock: payload.maxStock ?? null,
+              status: payload.status ?? 'ACTIVE',
+              imageUrl: normalizeOptionalText(payload.imageUrl),
+              isArchived: (payload.status ?? 'ACTIVE') === 'ARCHIVED',
+            },
+          });
+          results.created += 1;
+        }
+      }
+    });
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      userId: actorId,
+      action: 'IMPORT',
+      entity: 'Product',
+      entityId: null,
+      description: `Impor produk massal: ${results.created} dibuat, ${results.updated} diperbarui, ${results.failed} gagal`,
+    },
+  });
+
+  revalidatePath('/petshop/products');
+  revalidatePath('/petshop/inventory');
+
+  return { success: true, result: results };
 }
 
 export async function archiveProduct(id: string) {

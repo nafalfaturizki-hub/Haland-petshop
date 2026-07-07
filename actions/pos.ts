@@ -22,29 +22,32 @@ const listPosProductsSchema = z.object({
   take: z.coerce.number().int().min(1).optional(),
 });
 
-const listProductCategoriesSchema = z.object({});
-
 const createPosSaleSchema = z.object({
   customerId: z.string().trim().optional().or(z.literal('')),
   walkInName: z.string().trim().max(100).optional(),
   discountType: z.enum(['PERCENTAGE', 'FIXED']).default('PERCENTAGE'),
   discountAmount: z.coerce.number().min(0, 'Diskon tidak boleh negatif.').optional(),
-  items: z
-    .array(
-      z.object({
-        productId: z.string().trim().min(1, 'Produk tidak valid.'),
-        qty: z.coerce.number().int().positive('Kuantitas harus lebih dari nol.'),
-        price: z.coerce.number().min(0, 'Harga tidak boleh negatif.'),
-        description: z.string().trim().min(1, 'Deskripsi produk wajib diisi.'),
-      }),
-    )
-    .min(1, 'Keranjang tidak boleh kosong.'),
+  items: z.array(
+    z.object({
+      productId: z.string().trim().min(1, 'Produk tidak valid.'),
+      qty: z.coerce.number().int().positive('Kuantitas harus lebih dari nol.'),
+      price: z.coerce.number().min(0, 'Harga tidak boleh negatif.'),
+      description: z.string().trim().min(1, 'Deskripsi produk wajib diisi.'),
+    }),
+  ).min(1, 'Keranjang tidak boleh kosong.'),
   paymentMethod: z.enum(['CASH', 'NON_CASH'], { errorMap: () => ({ message: 'Metode pembayaran tidak valid.' }) }),
   paymentAmount: z.coerce.number().min(0, 'Jumlah pembayaran tidak boleh negatif.'),
   taxRate: z.coerce.number().min(0, 'Pajak tidak boleh negatif.').optional(),
 });
 
-
+const getPosTransactionHistorySchema = z.object({
+  startDate: z.string().trim().optional().or(z.literal('')),
+  endDate: z.string().trim().optional().or(z.literal('')),
+  customerId: z.string().trim().optional().or(z.literal('')),
+  cashierId: z.string().trim().optional().or(z.literal('')),
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(10),
+});
 
 function normalizeSearchQuery(query: string) {
   return query.trim().toLowerCase();
@@ -177,47 +180,45 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
     return { success: false, message: 'Anda tidak berwenang melakukan penjualan POS.' };
   }
 
-  const hasManualBuyer = Boolean(parsed.data.walkInName?.trim());
-  const hasSelectedCustomer = Boolean(parsed.data.customerId?.trim());
-
-  if (!hasManualBuyer && !hasSelectedCustomer) {
-    return { success: false, message: 'Pelanggan wajib dipilih atau isi nama pembeli manual.' };
-  }
-
-  if (parsed.data.discountType === 'PERCENTAGE' && (parsed.data.discountAmount ?? 0) > 100) {
-    return { success: false, message: 'Diskon persentase tidak boleh lebih dari 100%.' };
-  }
-
-  if (parsed.data.discountType === 'FIXED' && (parsed.data.discountAmount ?? 0) > 0 && parsed.data.discountAmount! > 999999999) {
-    return { success: false, message: 'Diskon nominal terlalu besar.' };
-  }
-
-  let resolvedCustomerId: string;
-  if (hasManualBuyer && !hasSelectedCustomer) {
-    const guestCustomer = await getOrCreateGuestCustomer();
-    resolvedCustomerId = guestCustomer.id;
-  } else {
-    const customer = await prisma.customer.findUnique({ where: { id: parsed.data.customerId! } });
-    if (!customer) {
-      return { success: false, message: 'Pelanggan tidak ditemukan.' };
-    }
-    resolvedCustomerId = customer.id;
-  }
-
-  const items = parsed.data.items;
-
-  const invoiceNumber = await generateInvoiceNumber();
-
-  const productStockDeductionItems = items.map((item) => ({ productId: item.productId, qty: item.qty }));
-
-  if (productStockDeductionItems.length > 0) {
-    const stockAvailability = await validateStockAvailability(prisma as any, productStockDeductionItems);
-    if (!stockAvailability.ok) {
-      return { success: false, message: stockAvailability.message };
-    }
-  }
-
   try {
+    const hasManualBuyer = Boolean(parsed.data.walkInName?.trim());
+    const hasSelectedCustomer = Boolean(parsed.data.customerId?.trim());
+
+    if (!hasManualBuyer && !hasSelectedCustomer) {
+      return { success: false, message: 'Pelanggan wajib dipilih atau isi nama pembeli manual.' };
+    }
+
+    if (parsed.data.discountType === 'PERCENTAGE' && (parsed.data.discountAmount ?? 0) > 100) {
+      return { success: false, message: 'Diskon persentase tidak boleh lebih dari 100%.' };
+    }
+
+    if (parsed.data.discountType === 'FIXED' && (parsed.data.discountAmount ?? 0) > 0 && parsed.data.discountAmount! > 999999999) {
+      return { success: false, message: 'Diskon nominal terlalu besar.' };
+    }
+
+    let resolvedCustomerId: string;
+    if (hasManualBuyer && !hasSelectedCustomer) {
+      const guestCustomer = await getOrCreateGuestCustomer();
+      resolvedCustomerId = guestCustomer.id;
+    } else {
+      const customer = await prisma.customer.findUnique({ where: { id: parsed.data.customerId! } });
+      if (!customer) {
+        return { success: false, message: 'Pelanggan tidak ditemukan.' };
+      }
+      resolvedCustomerId = customer.id;
+    }
+
+    const items = parsed.data.items;
+    const invoiceNumber = await generateInvoiceNumber();
+    const productStockDeductionItems = items.map((item) => ({ productId: item.productId, qty: item.qty }));
+
+    if (productStockDeductionItems.length > 0) {
+      const stockAvailability = await validateStockAvailability(prisma as any, productStockDeductionItems);
+      if (!stockAvailability.ok) {
+        return { success: false, message: stockAvailability.message };
+      }
+    }
+
     const invoiceResult = await prisma.$transaction(async (tx) => {
       const productLookups = await Promise.all(
         items.map((item) => tx.product.findUnique({ where: { id: item.productId } })),
@@ -337,6 +338,133 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Transaksi POS gagal.';
-    return { success: false, message };
+    return { success: false, message: message || 'Terjadi kesalahan saat memproses transaksi.' };
   }
+}
+
+export async function getPosTransactionHistory(input: z.infer<typeof getPosTransactionHistorySchema>) {
+  const session = await auth();
+  const actorRole = getActorRole(session);
+  const actorId = session?.user?.id;
+  const parsed = getPosTransactionHistorySchema.safeParse(input);
+
+  if (!parsed.success) {
+    return { success: false, message: 'Parameter riwayat transaksi tidak valid.' };
+  }
+
+  if (!actorId || !isStaffRole(actorRole)) {
+    return { success: false, message: 'Anda tidak berwenang melihat riwayat transaksi.' };
+  }
+
+  const page = parsed.data.page ?? 1;
+  const pageSize = parsed.data.pageSize ?? 10;
+  const where: any = {
+    appointmentId: null,
+    medicalRecordId: null,
+  };
+
+  if (parsed.data.startDate || parsed.data.endDate) {
+    where.date = {};
+    if (parsed.data.startDate) {
+      where.date.gte = new Date(parsed.data.startDate);
+    }
+    if (parsed.data.endDate) {
+      const endDate = new Date(parsed.data.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      where.date.lte = endDate;
+    }
+  }
+
+  if (parsed.data.customerId) {
+    where.customerId = parsed.data.customerId;
+  }
+
+  if (parsed.data.cashierId) {
+    where.createdById = parsed.data.cashierId;
+  }
+
+  const [totalCount, invoices] = await Promise.all([
+    prisma.invoice.count({ where }),
+    prisma.invoice.findMany({
+      where,
+      orderBy: { date: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        customer: { select: { name: true, isGuest: true } },
+        items: true,
+        payments: true,
+      },
+    }),
+  ]);
+
+  const cashierIds = [...new Set(invoices.map((invoice) => invoice.createdById).filter(Boolean) as string[])];
+  const cashiers = cashierIds.length > 0 ? await prisma.user.findMany({
+    where: { id: { in: cashierIds } },
+    select: { id: true, name: true },
+  }) : [];
+  const cashierMap = new Map(cashiers.map((cashier) => [cashier.id, cashier.name]));
+
+  const transactions = invoices.map((invoice) => {
+    const itemCount = invoice.items.reduce((sum, item) => sum + item.qty, 0);
+    const paymentMethod = invoice.payments[0]?.method ?? 'NON_CASH';
+
+    return {
+      id: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      date: invoice.date,
+      customerName: invoice.walkInName?.trim() || invoice.customer?.name || 'Pelanggan',
+      cashierName: invoice.createdById ? cashierMap.get(invoice.createdById) ?? 'Kasir' : '—',
+      itemCount,
+      totalAmount: invoice.totalAmount,
+      status: invoice.status,
+      paymentMethod,
+      paymentAmount: invoice.payments.reduce((sum, payment) => sum + payment.amount, 0),
+    };
+  });
+
+  return {
+    success: true,
+    transactions,
+    pagination: {
+      page,
+      pageSize,
+      totalCount,
+      totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
+    },
+  };
+}
+
+export async function getPosTransactionDetail(invoiceId: string) {
+  const session = await auth();
+  const actorRole = getActorRole(session);
+  const actorId = session?.user?.id;
+
+  if (!actorId || !isStaffRole(actorRole)) {
+    return { success: false, message: 'Anda tidak berwenang melihat detail transaksi.' };
+  }
+
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: {
+      customer: { select: { name: true, isGuest: true } },
+      items: true,
+      payments: true,
+    },
+  });
+
+  if (!invoice) {
+    return { success: false, message: 'Transaksi tidak ditemukan.' };
+  }
+
+  return {
+    success: true,
+    invoice: {
+      ...invoice,
+      customerName: invoice.walkInName?.trim() || invoice.customer?.name || 'Pelanggan',
+      itemCount: invoice.items.reduce((sum, item) => sum + item.qty, 0),
+      paymentMethod: invoice.payments[0]?.method ?? 'NON_CASH',
+      paymentAmount: invoice.payments.reduce((sum, payment) => sum + payment.amount, 0),
+    },
+  };
 }

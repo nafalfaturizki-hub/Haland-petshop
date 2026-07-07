@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { Warehouse, ArrowDown, ArrowUp, RefreshCw } from 'lucide-react';
+import { Warehouse, ArrowDown, ArrowUp, RefreshCw, Package } from 'lucide-react';
 import { listInventory, recordStockMovement, listStockMovements } from '@/actions/inventory';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -79,9 +79,8 @@ export default function InventoryPage() {
   }
 
   const columns: Array<{ key: keyof InventoryRow; header: string; render?: (row: InventoryRow) => ReactNode }> = [
-    { key: 'name', header: 'Produk' },
-    { key: 'category', header: 'Kategori', render: (row) => row.category?.name ?? '-' },
-    { key: 'stock', header: 'Stok', render: (row) => <span className={row.stock <= row.minStock ? 'font-semibold text-red-600' : ''}>{row.stock}</span> },
+    { key: 'name', header: 'Produk', render: (row) => <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-full bg-zinc-100 text-zinc-600"><Package className="h-4 w-4" /></div><div><p className="font-medium text-zinc-900">{row.name}</p><p className="text-xs text-zinc-500">{row.category?.name ?? '-'}</p></div></div> },
+    { key: 'stock', header: 'Stok', render: (row) => <span className={row.stock <= row.minStock ? 'font-semibold text-red-600' : 'text-zinc-900'}>{row.stock}</span> },
     { key: 'minStock', header: 'Min Stok' },
     { key: 'supplier', header: 'Supplier', render: (row) => row.supplier?.name ?? '-' },
   ];
@@ -99,7 +98,7 @@ export default function InventoryPage() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_0.7fr]">
         <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-          {loading ? <div className="text-sm text-zinc-500">Memuat inventori...</div> : products.length === 0 ? <EmptyState title="Belum ada produk" description="Tambah produk di menu Produk terlebih dahulu." /> : <DataTable title="Daftar stok produk" columns={columns} rows={products} emptyMessage="Belum ada produk." />}
+          {loading ? <div className="text-sm text-zinc-500">Memuat inventori...</div> : products.length === 0 ? <EmptyState title="Belum ada produk" description="Tambah produk di menu Produk terlebih dahulu." /> : <DataTable title="Daftar stok produk" columns={columns} rows={products} emptyMessage="Belum ada produk." pageSize={8} />}
         </div>
 
         <form onSubmit={handleMovement} className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">

@@ -1,8 +1,9 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ArrowRight, Banknote, Bone, CheckCircle2, Package, Pill, Plus, Printer, Search, ShoppingBag, X } from 'lucide-react';
+import { ArrowRight, Banknote, Bone, CheckCircle2, History, Package, Pill, Plus, Printer, Search, ShoppingBag, X } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { createPosSale, listPosProducts, listProductCategories } from '@/actions/pos';
 import { getInvoiceLookups } from '@/actions/invoice';
@@ -54,6 +55,7 @@ export default function PosPage() {
   const [submitting, setSubmitting] = useState(false);
   const [taxRate, setTaxRate] = useState('0');
   const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
+  const checkoutTimeoutRef = useRef<number | null>(null);
 
   const loadCustomers = useCallback(async () => {
     const result = await getInvoiceLookups();
@@ -176,8 +178,9 @@ export default function PosPage() {
   const paymentShortage = paymentMethod === 'CASH' ? Math.max(0, totals.totalAmount - payment) : 0;
   const paymentError = paymentMethod === 'CASH' && payment < totals.totalAmount ? `Jumlah bayar kurang ${formatCurrency(paymentShortage)}.` : '';
 
-  async function handleCheckout(event: React.FormEvent) {
-    event.preventDefault();
+  async function handleCheckout(event?: React.FormEvent | React.MouseEvent) {
+    event?.preventDefault?.();
+    if (submitting) return;
     if (cart.length === 0) {
       toast.error('Keranjang kosong.');
       return;
@@ -196,35 +199,55 @@ export default function PosPage() {
     }
 
     setSubmitting(true);
-    const result = await createPosSale({
-      customerId: buyerMode === 'REGISTERED' ? customerId || undefined : undefined,
-      walkInName: buyerMode === 'MANUAL' ? walkInName.trim() : undefined,
-      items: cart.map((item) => ({
-        productId: item.productId,
-        qty: item.qty,
-        price: item.price,
-        description: item.name,
-      })),
-      discountType,
-      discountAmount: discountValue,
-      paymentMethod,
-      paymentAmount: payment,
-      taxRate: Number(taxRate) || 0,
-    });
 
-    if (!result.success) {
-      toast.error(result.message ?? 'Gagal menyimpan transaksi.');
-      setSubmitting(false);
-      return;
+    if (checkoutTimeoutRef.current) {
+      window.clearTimeout(checkoutTimeoutRef.current);
     }
 
-    setCreatedInvoice(result.invoice);
-    setCart([]);
-    setDiscountAmount('0');
-    setPaymentAmount('0');
-    setTaxRate('0');
-    toast.success(`Transaksi berhasil. Kembalian ${formatCurrency(change)}.`);
-    setSubmitting(false);
+    checkoutTimeoutRef.current = window.setTimeout(() => {
+      setSubmitting(false);
+      checkoutTimeoutRef.current = null;
+      toast.error('Waktu pemrosesan transaksi habis. Silakan coba lagi.');
+    }, 15000);
+
+    try {
+      const result = await createPosSale({
+        customerId: buyerMode === 'REGISTERED' ? customerId || undefined : undefined,
+        walkInName: buyerMode === 'MANUAL' ? walkInName.trim() : undefined,
+        items: cart.map((item) => ({
+          productId: item.productId,
+          qty: item.qty,
+          price: item.price,
+          description: item.name,
+        })),
+        discountType,
+        discountAmount: discountValue,
+        paymentMethod,
+        paymentAmount: payment,
+        taxRate: Number(taxRate) || 0,
+      });
+
+      if (!result.success) {
+        toast.error(result.message ?? 'Gagal menyimpan transaksi.');
+        return;
+      }
+
+      setCreatedInvoice(result.invoice);
+      setCart([]);
+      setDiscountAmount('0');
+      setPaymentAmount('0');
+      setTaxRate('0');
+      toast.success(`Transaksi berhasil. Kembalian ${formatCurrency(change)}.`);
+    } catch (error) {
+      console.error(error);
+      toast.error('Terjadi kesalahan saat memproses transaksi. Silakan coba lagi.');
+    } finally {
+      if (checkoutTimeoutRef.current) {
+        window.clearTimeout(checkoutTimeoutRef.current);
+      }
+      checkoutTimeoutRef.current = null;
+      setSubmitting(false);
+    }
   }
 
   useRefetchOnFocus(loadCustomers);
@@ -413,7 +436,7 @@ export default function PosPage() {
             <button type="button" onClick={() => setCart([])} className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50">
               Bersihkan
             </button>
-            <button type="button" onClick={handleCheckout as any} disabled={submitting} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-70">
+            <button type="button" onClick={(event) => void handleCheckout(event)} disabled={submitting || cart.length === 0} className="inline-flex items-center justify-center gap-2 rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-70">
               <ArrowRight className="h-4 w-4" /> {submitting ? 'Proses...' : 'Bayar'}
             </button>
           </div>
@@ -435,15 +458,18 @@ export default function PosPage() {
             <p className="text-sm text-zinc-500">Modul POS</p>
             <h1 className="text-xl font-semibold text-zinc-900">Transaksi penjualan produk</h1>
           </div>
-          <div className="flex items-center gap-2 text-zinc-700">
+          <div className="flex flex-wrap items-center gap-2 text-zinc-700">
             <ShoppingBag className="h-5 w-5" />
             <span className="text-sm">Owner & Admin Klinik</span>
+            <Link href="/pos/riwayat" className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50">
+              <History className="h-4 w-4" /> Riwayat transaksi
+            </Link>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <section className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="grid gap-6 lg:grid-cols-[0.64fr_0.36fr]">
+        <section className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5">
           <form onSubmit={handleSearch} className="flex flex-col gap-3">
             <div className="grid gap-3 lg:grid-cols-[1.6fr_auto]">
               <label className="block text-sm font-medium text-zinc-700">Cari produk atau scan barcode</label>
@@ -483,7 +509,7 @@ export default function PosPage() {
             </div>
           </form>
 
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="mt-3 grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4">
             {loadingProducts && products.length === 0 ? (
               Array.from({ length: 8 }).map((_, index) => (
                 <div key={index} className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm">
@@ -504,25 +530,27 @@ export default function PosPage() {
                   <button
                     type="button"
                     onClick={() => addToCart(product)}
-                    className="flex h-full w-full flex-col justify-between p-3 text-left"
+                    className="flex h-full w-full flex-row items-center gap-3 p-2 text-left md:flex-col md:items-stretch md:p-3"
                   >
-                    <div className="mb-3 h-32 w-full overflow-hidden rounded-2xl bg-zinc-100">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-zinc-100 md:h-24 md:w-full md:aspect-square">
                       {product.imageUrl ? (
                         <img src={product.imageUrl} alt={product.name} className="h-full w-full object-cover" />
                       ) : (
-                        <div className="flex h-full items-center justify-center text-zinc-400">No Image</div>
+                        <div className="flex h-full w-full items-center justify-center text-zinc-400">
+                          {product.categoryName?.toLowerCase().includes('makanan') ? <Bone className="h-6 w-6" /> : product.categoryName?.toLowerCase().includes('obat') ? <Pill className="h-6 w-6" /> : <Package className="h-6 w-6" />}
+                        </div>
                       )}
                     </div>
-                    <div className="space-y-3">
+                    <div className="min-w-0 flex-1 space-y-2 md:space-y-2">
                       <div>
-                        <h3 className="text-sm font-semibold text-zinc-900">{product.name}</h3>
+                        <h3 className="truncate text-sm font-semibold text-zinc-900">{product.name}</h3>
                         <p className="text-xs text-zinc-500">{product.categoryName ?? 'Tanpa kategori'}</p>
                       </div>
-                      <div className="flex items-center justify-between gap-3 text-xs text-zinc-700">
+                      <div className="flex items-center justify-between gap-2 text-xs text-zinc-700">
                         <span className="font-semibold text-zinc-900">{formatCurrency(product.sellPrice)}</span>
-                        <span className="rounded-full border border-zinc-200 px-3 py-1 text-[11px] text-zinc-500">Stok {product.stock}</span>
+                        <span className="rounded-full border border-zinc-200 px-2 py-1 text-[10px] text-zinc-500">Stok {product.stock}</span>
                       </div>
-                      <div className="rounded-full bg-zinc-900 px-4 py-2 text-center text-sm font-medium text-white transition hover:bg-zinc-800">
+                      <div className="inline-flex items-center justify-center rounded-full bg-zinc-900 px-3 py-2 text-center text-xs font-medium text-white transition hover:bg-zinc-800 md:w-full">
                         Tambah
                       </div>
                     </div>
@@ -546,7 +574,7 @@ export default function PosPage() {
           ) : null}
         </section>
 
-        <section className="xl:hidden">
+        <section className="lg:hidden">
           <div className="mb-4 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -564,7 +592,7 @@ export default function PosPage() {
           </div>
         </section>
 
-        <div className="hidden xl:block">
+        <div className="hidden lg:block">
           {checkoutPanel}
         </div>
 
