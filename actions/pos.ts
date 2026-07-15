@@ -8,6 +8,7 @@ import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDesc
 import { getAuthorizedRoutes } from '@/lib/permission-matrix';
 import { notifyUser } from '@/lib/notifications-helper';
 import { calculatePosTotals, getPaymentStatus, roundCurrency, validatePosCheckout } from '@/lib/pos';
+import { calculateFinalTotal, posCheckoutPayloadSchema, validateDiscount, validateStockAvailabilityForCheckout } from '@/lib/pos-validation';
 import { getActorRole } from '@/lib/utils';
 import { generateInvoiceNumber } from '@/lib/numbering';
 import { deductProductStock, validateStockAvailability } from '@/lib/inventory-helpers';
@@ -23,23 +24,7 @@ const listPosProductsSchema = z.object({
   take: z.coerce.number().int().min(1).optional(),
 });
 
-const createPosSaleSchema = z.object({
-  customerId: z.string().trim().optional().or(z.literal('')),
-  walkInName: z.string().trim().max(100).optional(),
-  discountType: z.enum(['PERCENTAGE', 'FIXED']).default('PERCENTAGE'),
-  discountAmount: z.coerce.number().min(0, 'Diskon tidak boleh negatif.').optional(),
-  items: z.array(
-    z.object({
-      productId: z.string().trim().min(1, 'Produk tidak valid.'),
-      qty: z.coerce.number().int().positive('Kuantitas harus lebih dari nol.'),
-      price: z.coerce.number().min(0, 'Harga tidak boleh negatif.'),
-      description: z.string().trim().min(1, 'Deskripsi produk wajib diisi.'),
-    }),
-  ).min(1, 'Keranjang tidak boleh kosong.'),
-  paymentMethod: z.enum(['CASH', 'NON_CASH'], { errorMap: () => ({ message: 'Metode pembayaran tidak valid.' }) }),
-  paymentAmount: z.coerce.number().min(0, 'Jumlah pembayaran tidak boleh negatif.'),
-  taxRate: z.coerce.number().min(0, 'Pajak tidak boleh negatif.').optional(),
-});
+const createPosSaleSchema = posCheckoutPayloadSchema;
 
 const getPosTransactionHistorySchema = z.object({
   startDate: z.string().trim().optional().or(z.literal('')),
@@ -167,14 +152,14 @@ export async function searchProducts(input: z.infer<typeof productSearchSchema>)
   return result;
 }
 
-export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) {
+export async function validatePosSale(input: z.infer<typeof createPosSaleSchema>) {
   const session = await auth();
   const actorRole = getActorRole(session);
   const actorId = session?.user?.id;
   const parsed = createPosSaleSchema.safeParse(input);
 
   if (!parsed.success) {
-    return { success: false, message: 'Data transaksi tidak valid.' };
+    return { success: false as const, message: parsed.error.issues[0]?.message ?? 'Data transaksi tidak valid.' };
   }
 
   const permissionCheck = await enforceActionPermission({
@@ -197,48 +182,83 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
   });
 
   if (!permissionCheck.allowed) {
-    return { success: false, message: permissionCheck.message };
+    return { success: false as const, message: permissionCheck.message };
   }
 
+  const subtotal = roundCurrency(parsed.data.items.reduce((sum, item) => sum + (item.price * item.qty), 0));
+  const discountValue = parsed.data.discountAmount ?? 0;
+  const discountValidation = validateDiscount({ discountType: parsed.data.discountType, discountAmount: discountValue, subtotal });
+  if (!discountValidation.ok) {
+    return { success: false as const, message: discountValidation.message };
+  }
+
+  const totals = calculateFinalTotal({ subtotal, discountType: parsed.data.discountType, discountAmount: discountValue, taxRate: parsed.data.taxRate ?? 0 });
+  const validation = validatePosCheckout({
+    customerId: parsed.data.customerId ?? '',
+    walkInName: parsed.data.walkInName ?? '',
+    items: parsed.data.items.map((item) => ({ qty: item.qty, price: item.price })),
+    discountType: parsed.data.discountType,
+    discountAmount: discountValue,
+    paymentMethod: parsed.data.paymentMethod,
+    paymentAmount: parsed.data.paymentAmount,
+    subtotal,
+    taxRate: parsed.data.taxRate ?? 0,
+  });
+
+  if (!validation.ok) {
+    return { success: false as const, message: validation.message };
+  }
+
+  const stockValidation = validateStockAvailabilityForCheckout(
+    parsed.data.items.map((item) => ({ qty: item.qty, productId: item.productId })),
+    Object.fromEntries((await prisma.product.findMany({ where: { id: { in: parsed.data.items.map((item) => item.productId) } }, select: { id: true, stock: true } })).map((product: any) => [product.id, product.stock])),
+  );
+
+  if (!stockValidation.ok) {
+    return { success: false as const, message: stockValidation.message };
+  }
+
+  return {
+    success: true as const,
+    actorRole,
+    actorId,
+    parsedData: parsed.data,
+    subtotal,
+    totals,
+  };
+}
+
+export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) {
+  const session = await auth();
+  const actorRole = getActorRole(session);
+  const actorId = session?.user?.id;
+
   try {
-    const hasManualBuyer = Boolean(parsed.data.walkInName?.trim());
-    const hasSelectedCustomer = Boolean(parsed.data.customerId?.trim());
-    const subtotal = roundCurrency(parsed.data.items.reduce((sum, item) => sum + (item.price * item.qty), 0));
-    const discountValue = parsed.data.discountAmount ?? 0;
-    const discountAmount = parsed.data.discountType === 'PERCENTAGE'
-      ? roundCurrency((subtotal * Math.min(discountValue, 100)) / 100)
-      : roundCurrency(Math.min(discountValue, subtotal));
-    const computedTotals = calculatePosTotals(subtotal, discountAmount, parsed.data.taxRate ?? 0);
-
-    const validation = validatePosCheckout({
-      customerId: parsed.data.customerId ?? '',
-      walkInName: parsed.data.walkInName ?? '',
-      items: parsed.data.items.map((item) => ({ qty: item.qty, price: item.price })),
-      discountType: parsed.data.discountType,
-      discountAmount: discountValue,
-      paymentMethod: parsed.data.paymentMethod,
-      paymentAmount: parsed.data.paymentAmount,
-      subtotal,
-      taxRate: parsed.data.taxRate ?? 0,
-    });
-
-    if (!validation.ok) {
+    const validation = await validatePosSale(input);
+    if (!validation.success) {
       return { success: false, message: validation.message };
     }
+
+    const parsed = validation.parsedData;
+    const hasManualBuyer = Boolean(parsed.walkInName?.trim());
+    const hasSelectedCustomer = Boolean(parsed.customerId?.trim());
+    const subtotal = validation.subtotal;
+    const discountValue = parsed.discountAmount ?? 0;
+    const computedTotals = validation.totals;
 
     let resolvedCustomerId: string;
     if (hasManualBuyer && !hasSelectedCustomer) {
       const guestCustomer = await getOrCreateGuestCustomer();
       resolvedCustomerId = guestCustomer.id;
     } else {
-      const customer = await prisma.customer.findUnique({ where: { id: parsed.data.customerId! } });
+      const customer = await prisma.customer.findUnique({ where: { id: parsed.customerId! } });
       if (!customer) {
         return { success: false, message: 'Pelanggan tidak ditemukan.' };
       }
       resolvedCustomerId = customer.id;
     }
 
-    const items = parsed.data.items;
+    const items = parsed.items;
     const invoiceNumber = await generateInvoiceNumber();
     const productStockDeductionItems = items.map((item) => ({ productId: item.productId, qty: item.qty }));
 
@@ -274,19 +294,16 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
       });
 
       const subtotal = roundCurrency(validatedItems.reduce((sum, item) => sum + item.subtotal, 0));
-      const taxRate = parsed.data.taxRate ?? 0;
-      const discountValue = parsed.data.discountAmount ?? 0;
-      const discountAmount = parsed.data.discountType === 'PERCENTAGE'
-        ? roundCurrency((subtotal * Math.min(discountValue, 100)) / 100)
-        : roundCurrency(Math.min(discountValue, subtotal));
-      const transactionTotals = calculatePosTotals(subtotal, discountAmount, taxRate);
+      const taxRate = parsed.taxRate ?? 0;
+      const discountValue = parsed.discountAmount ?? 0;
+      const transactionTotals = calculateFinalTotal({ subtotal, discountType: parsed.discountType, discountAmount: discountValue, taxRate });
 
-      const status = getPaymentStatus(parsed.data.paymentAmount, transactionTotals.totalAmount);
+      const status = getPaymentStatus(parsed.paymentAmount, transactionTotals.totalAmount);
 
       const createdInvoice = await tx.invoice.create({
         data: {
           customerId: resolvedCustomerId,
-          walkInName: hasManualBuyer ? parsed.data.walkInName?.trim() : null,
+          walkInName: hasManualBuyer ? parsed.walkInName?.trim() : null,
           invoiceNumber,
           status,
           subtotal: transactionTotals.subtotal,
@@ -306,8 +323,8 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
           },
           payments: {
             create: {
-              method: parsed.data.paymentMethod,
-              amount: roundCurrency(parsed.data.paymentAmount),
+              method: parsed.paymentMethod,
+              amount: roundCurrency(parsed.paymentAmount),
             },
           },
         },
@@ -360,12 +377,63 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
     return {
       success: true,
       invoice,
-      changeAmount: roundCurrency(parsed.data.paymentAmount - invoiceTotals.totalAmount),
+      receiptHtml: generateReceiptHTML({ invoice, customerName: invoice.walkInName?.trim() || 'Pelanggan' }),
+      changeAmount: roundCurrency(parsed.paymentAmount - invoiceTotals.totalAmount),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Transaksi POS gagal.';
     return { success: false, message: message || 'Terjadi kesalahan saat memproses transaksi.' };
   }
+}
+
+export function generateReceiptHTML(input: { invoice: any; customerName: string }) {
+  const lines = (input.invoice.items ?? []).map((item: any) => `
+    <tr>
+      <td>${item.description}</td>
+      <td>${item.qty}</td>
+      <td>${item.price.toLocaleString('id-ID')}</td>
+      <td>${item.subtotal.toLocaleString('id-ID')}</td>
+    </tr>`).join('');
+
+  return `<!DOCTYPE html>
+  <html>
+    <head><meta charset="utf-8" /><title>Struk ${input.invoice.invoiceNumber}</title></head>
+    <body style="font-family: Arial, sans-serif; padding: 24px; color: #111;">
+      <h2>Struk Penjualan</h2>
+      <p><strong>No. Invoice:</strong> ${input.invoice.invoiceNumber}</p>
+      <p><strong>Pelanggan:</strong> ${input.customerName}</p>
+      <p><strong>Tanggal:</strong> ${new Date(input.invoice.date).toLocaleString('id-ID')}</p>
+      <table style="width:100%; border-collapse:collapse; margin-top: 12px;">
+        <thead>
+          <tr><th style="text-align:left; border-bottom:1px solid #ccc; padding:8px;">Produk</th><th style="text-align:left; border-bottom:1px solid #ccc; padding:8px;">Qty</th><th style="text-align:left; border-bottom:1px solid #ccc; padding:8px;">Harga</th><th style="text-align:left; border-bottom:1px solid #ccc; padding:8px;">Subtotal</th></tr>
+        </thead>
+        <tbody>${lines}</tbody>
+      </table>
+      <p style="margin-top: 12px;"><strong>Subtotal:</strong> ${input.invoice.subtotal.toLocaleString('id-ID')}</p>
+      <p><strong>Diskon:</strong> ${input.invoice.discountAmount.toLocaleString('id-ID')}</p>
+      <p><strong>Pajak:</strong> ${input.invoice.taxAmount.toLocaleString('id-ID')}</p>
+      <p><strong>Total:</strong> ${input.invoice.totalAmount.toLocaleString('id-ID')}</p>
+      <p><strong>Status:</strong> ${input.invoice.status}</p>
+    </body>
+  </html>`;
+}
+
+export async function createPosSaleWithRetry(input: z.infer<typeof createPosSaleSchema>) {
+  let lastResult: { success: boolean; message?: string; invoice?: any; receiptHtml?: string; changeAmount?: number } | undefined;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const result = await createPosSale(input);
+    lastResult = result;
+    if (result.success) {
+      return result;
+    }
+
+    if (attempt === 1) {
+      break;
+    }
+  }
+
+  return lastResult ?? { success: false, message: 'Transaksi POS gagal.' };
 }
 
 export async function getPosTransactionHistory(input: z.infer<typeof getPosTransactionHistorySchema>) {

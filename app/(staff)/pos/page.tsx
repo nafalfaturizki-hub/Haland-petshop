@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ArrowRight, Banknote, Bone, CheckCircle2, History, Package, Pill, Plus, Printer, Search, ShoppingBag, X } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { createPosSale, listPosProducts, listProductCategories } from '@/actions/pos';
+import { createPosSaleWithRetry, listPosProducts, listProductCategories, validatePosSale } from '@/actions/pos';
 import { getInvoiceLookups } from '@/actions/invoice';
 import { calculatePosTotals, getPaymentSummary, roundCurrency, validatePosCheckout } from '@/lib/pos';
 import { usePolling } from '@/hooks/use-polling';
@@ -57,6 +57,8 @@ export default function PosPage() {
   const [submitting, setSubmitting] = useState(false);
   const [taxRate, setTaxRate] = useState('0');
   const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
+  const [receiptHtml, setReceiptHtml] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const checkoutTimeoutRef = useRef<number | null>(null);
   const CART_STORAGE_KEY = 'haland-pos-cart';
   const { canPerform, isOwner, isAdmin } = usePermissions();
@@ -207,22 +209,27 @@ export default function PosPage() {
   async function handleCheckout(event?: React.FormEvent | React.MouseEvent) {
     event?.preventDefault?.();
     if (!canManageSales) {
+      setCheckoutError('Anda tidak memiliki izin untuk melakukan transaksi POS.');
       toast.error('Anda tidak memiliki izin untuk melakukan transaksi POS.');
       return;
     }
     if (submitting) return;
     if (cart.length === 0) {
+      setCheckoutError('Keranjang kosong.');
       toast.error('Keranjang kosong.');
       return;
     }
     if (buyerMode === 'REGISTERED' && !customerId) {
+      setCheckoutError('Pilih pelanggan terdaftar atau beralih ke input manual.');
       toast.error('Pilih pelanggan terdaftar atau beralih ke input manual.');
       return;
     }
     if (buyerMode === 'MANUAL' && !walkInName.trim()) {
+      setCheckoutError('Isi nama pembeli manual.');
       toast.error('Isi nama pembeli manual.');
       return;
     }
+
     const validation = validatePosCheckout({
       customerId,
       walkInName,
@@ -236,11 +243,13 @@ export default function PosPage() {
     });
 
     if (!validation.ok) {
+      setCheckoutError(validation.message);
       toast.error(validation.message);
       return;
     }
 
     setSubmitting(true);
+    setCheckoutError(null);
 
     if (checkoutTimeoutRef.current) {
       window.clearTimeout(checkoutTimeoutRef.current);
@@ -249,11 +258,34 @@ export default function PosPage() {
     checkoutTimeoutRef.current = window.setTimeout(() => {
       setSubmitting(false);
       checkoutTimeoutRef.current = null;
+      setCheckoutError('Waktu pemrosesan transaksi habis. Silakan coba lagi.');
       toast.error('Waktu pemrosesan transaksi habis. Silakan coba lagi.');
     }, 15000);
 
     try {
-      const result = await createPosSale({
+      const validationResult = await validatePosSale({
+        customerId: buyerMode === 'REGISTERED' ? customerId || undefined : undefined,
+        walkInName: buyerMode === 'MANUAL' ? walkInName.trim() : undefined,
+        items: cart.map((item) => ({
+          productId: item.productId,
+          qty: item.qty,
+          price: item.price,
+          description: item.name,
+        })),
+        discountType,
+        discountAmount: discountValue,
+        paymentMethod,
+        paymentAmount: payment,
+        taxRate: Number(taxRate) || 0,
+      });
+
+      if (!validationResult.success) {
+        setCheckoutError(validationResult.message ?? 'Validasi checkout gagal.');
+        toast.error(validationResult.message ?? 'Validasi checkout gagal.');
+        return;
+      }
+
+      const result = await createPosSaleWithRetry({
         customerId: buyerMode === 'REGISTERED' ? customerId || undefined : undefined,
         walkInName: buyerMode === 'MANUAL' ? walkInName.trim() : undefined,
         items: cart.map((item) => ({
@@ -270,18 +302,22 @@ export default function PosPage() {
       });
 
       if (!result.success) {
+        setCheckoutError(result.message ?? 'Gagal menyimpan transaksi.');
         toast.error(result.message ?? 'Gagal menyimpan transaksi.');
         return;
       }
 
       setCreatedInvoice(result.invoice);
+      setReceiptHtml(result.receiptHtml ?? null);
       setCart([]);
       setDiscountAmount('0');
       setPaymentAmount('0');
       setTaxRate('0');
-      toast.success(`Transaksi berhasil. ${paymentSummary.changeAmount > 0 ? `Kembalian ${formatCurrency(paymentSummary.changeAmount)}.` : 'Pembayaran lunas.'}`);
+      setCheckoutError(null);
+      toast.success(`Transaksi berhasil. ${result.changeAmount && result.changeAmount > 0 ? `Kembalian ${formatCurrency(result.changeAmount)}.` : 'Pembayaran lunas.'}`);
     } catch (error) {
       console.error(error);
+      setCheckoutError('Terjadi kesalahan saat memproses transaksi. Silakan coba lagi.');
       toast.error('Terjadi kesalahan saat memproses transaksi. Silakan coba lagi.');
     } finally {
       if (checkoutTimeoutRef.current) {
@@ -296,12 +332,10 @@ export default function PosPage() {
   usePolling(loadCustomers, 30000);
 
   function handlePrint() {
-    if (!createdInvoice) return;
-    const customerName = createdInvoice.walkInName?.trim() || createdInvoice.customer?.name || 'Pelanggan';
-    const html = `<!DOCTYPE html><html><head><title>Struk ${createdInvoice.invoiceNumber}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1,h2,h3{margin:0}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{padding:8px;border:1px solid #ccc;text-align:left}strong{display:inline-block;width:120px}</style></head><body><h1>Struk Penjualan</h1><p><strong>No. Invoice:</strong> ${createdInvoice.invoiceNumber}</p><p><strong>Pelanggan:</strong> ${customerName}</p><p><strong>Tanggal:</strong> ${formatDate(createdInvoice.date)}</p><table><thead><tr><th>Produk</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>${createdInvoice.items.map((item: any) => `<tr><td>${item.description}</td><td>${item.qty}</td><td>${formatCurrency(item.price)}</td><td>${formatCurrency(item.subtotal)}</td></tr>`).join('')}</tbody></table><p><strong>Total:</strong> ${formatCurrency(createdInvoice.totalAmount)}</p><p><strong>Dibayar:</strong> ${formatCurrency(createdInvoice.payments?.[0]?.amount ?? 0)}</p><p><strong>Status:</strong> ${createdInvoice.status}</p></body></html>`;
+    if (!receiptHtml && !createdInvoice) return;
     const popup = window.open('', '_blank');
     if (popup) {
-      popup.document.write(html);
+      popup.document.write(receiptHtml ?? `<!DOCTYPE html><html><body><p>Struk tidak tersedia.</p></body></html>`);
       popup.document.close();
       popup.focus();
       popup.print();
@@ -471,6 +505,10 @@ export default function PosPage() {
             <div className="flex items-center justify-between"><span>Kembalian</span><strong>{formatCurrency(paymentSummary.changeAmount)}</strong></div>
             {paymentError ? <p className="mt-1 text-xs text-red-600">{paymentError}</p> : null}
           </div>
+        ) : null}
+
+        {checkoutError ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{checkoutError}</div>
         ) : null}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
