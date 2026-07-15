@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
+import { canPerform, getAuthorizedRoutes } from '@/lib/permission-matrix';
 
 const loginRateLimitWindowMs = 15 * 60 * 1000;
 const loginRateLimitMaxAttempts = 5;
@@ -79,21 +80,24 @@ export async function middleware(request: NextRequest) {
   return proxy(request);
 }
 
-const STAFF_PREFIXES = [
-  '/dashboard',
-  '/customers',
-  '/pets',
-  '/appointments',
-  '/medical-records',
-  '/pet-hotel',
-  '/petshop',
-  '/pos',
-  '/billing',
-  '/reports',
-  '/users',
-  '/settings',
-  '/profile',
-];
+const ROUTE_TO_MODULE: Record<string, string> = {
+  '/dashboard': 'dashboard',
+  '/customers': 'customers',
+  '/pets': 'pets',
+  '/appointments': 'appointments',
+  '/medical-records': 'medical-records',
+  '/procedures': 'procedures',
+  '/pet-hotel': 'pet-hotel',
+  '/petshop': 'petshop',
+  '/pos': 'pos',
+  '/billing': 'billing',
+  '/reports': 'reports',
+  '/users': 'users',
+  '/settings': 'settings',
+  '/profile': 'profile',
+};
+
+const STAFF_PREFIXES = Object.keys(ROUTE_TO_MODULE);
 
 const CUSTOMER_PREFIXES = ['/portal'];
 
@@ -157,6 +161,16 @@ export async function proxy(request: NextRequest) {
 
     if (!['OWNER', 'ADMIN_KLINIK', 'DOKTER'].includes(role ?? '')) {
       return NextResponse.redirect(new URL('/login', request.url));
+    }
+
+    const matchedModule = Object.entries(ROUTE_TO_MODULE).find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[1];
+
+    if (!matchedModule || !canPerform(role, matchedModule as any)) {
+      const unauthorizedUrl = new URL('/dashboard', request.url);
+      unauthorizedUrl.searchParams.set('unauthorized', '1');
+      unauthorizedUrl.searchParams.set('route', pathname);
+      console.warn(`[middleware] Unauthorized access: role=${role ?? 'unknown'} route=${pathname}`);
+      return NextResponse.redirect(unauthorizedUrl);
     }
 
     return NextResponse.next();

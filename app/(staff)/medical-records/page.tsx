@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { FileText, Printer, Trash2 } from 'lucide-react';
 import { createMedicalRecord, deleteMedicalRecord, getMedicalRecordAccess, listMedicalRecordOptions, listMedicalRecords, updateMedicalRecord } from '@/actions/medical-record';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { MedicalRecordDetail } from '@/components/medical-records/MedicalRecordDetail';
+import { MedicalRecordForm } from '@/components/medical-records/MedicalRecordForm';
 import { formatStructuredItemsForInput, parseStructuredItems } from '@/lib/medical-record-utils';
 import { buildMedicalRecordPrefillFromSearchParams } from '@/lib/route-prefill';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -32,7 +33,7 @@ type RecordRow = {
   respiratoryRate: number | null;
   notes: string | null;
   attachments: string | null;
-  searchText: string;
+  searchText?: string;
   customer: { id: string; name: string } | null;
   pet: { id: string; name: string; species: string } | null;
   doctor: { id: string; name: string } | null;
@@ -161,6 +162,10 @@ export default function MedicalRecordsPage() {
     });
   }
 
+  function handleFieldChange(field: keyof MedicalRecordFormState, value: string) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
   function handleAttachmentChange(event: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     if (!files.length) {
@@ -266,165 +271,33 @@ export default function MedicalRecordsPage() {
 
       {message ? <div className={`rounded-lg border p-3 text-sm ${messageType === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-rose-200 bg-rose-50 text-rose-700'}`}>{message}</div> : null}
 
-      {canManage && canCreateRecord ? (
-        <form onSubmit={handleSubmit} className="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center gap-2 text-zinc-900">
-            <FileText className="h-4 w-4" />
-            <h2 className="text-base font-semibold">{editingId ? 'Edit rekam medis' : 'Tambah rekam medis'}</h2>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block text-sm text-zinc-600">
-              Appointment
-              <select value={form.appointmentId} onChange={(event) => setForm({ ...form, appointmentId: event.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
-                <option value="">Pilih appointment</option>
-                {appointments.map((appointment) => <option key={appointment.id} value={appointment.id}>{appointment.pet.name} — {appointment.customer.name}</option>)}
-              </select>
-            </label>
-            <label className="block text-sm text-zinc-600">
-              Tanggal kunjungan
-              <input type="datetime-local" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-            </label>
-            <label className="block text-sm text-zinc-600">
-              Status
-              <select value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
-                <option value="OPEN">OPEN</option>
-                <option value="IN_PROGRESS">IN PROGRESS</option>
-                <option value="COMPLETED">COMPLETED</option>
-                <option value="CLOSED">CLOSED</option>
-              </select>
-            </label>
-            <label className="block text-sm text-zinc-600">
-              Berat badan (kg)
-              <input type="number" step="0.1" value={form.weight} onChange={(event) => setForm({ ...form, weight: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-            </label>
-            <label className="block text-sm text-zinc-600">
-              Suhu (°C)
-              <input type="number" step="0.1" value={form.temperature} onChange={(event) => setForm({ ...form, temperature: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-            </label>
-            <label className="block text-sm text-zinc-600">
-              Detak jantung / menit
-              <input type="number" min="1" value={form.heartRate} onChange={(event) => setForm({ ...form, heartRate: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-            </label>
-            <label className="block text-sm text-zinc-600">
-              Laju napas / menit
-              <input type="number" min="1" value={form.respiratoryRate} onChange={(event) => setForm({ ...form, respiratoryRate: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-            </label>
-          </div>
-
-          <label className="block text-sm text-zinc-600">
-            Keluhan utama
-            <textarea value={form.chiefComplaint} onChange={(event) => setForm({ ...form, chiefComplaint: event.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Riwayat
-            <textarea value={form.history} onChange={(event) => setForm({ ...form, history: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Pemeriksaan fisik
-            <textarea value={form.physicalExam} onChange={(event) => setForm({ ...form, physicalExam: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Tanda vital
-            <textarea value={form.vitalSigns} onChange={(event) => setForm({ ...form, vitalSigns: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Diagnosis
-            <textarea value={form.diagnosis} onChange={(event) => setForm({ ...form, diagnosis: event.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Tindakan
-            <textarea value={form.treatment} onChange={(event) => setForm({ ...form, treatment: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" rows={3} placeholder="Nama tindakan | qty | catatan" />
-            <span className="mt-1 block text-xs text-zinc-500">Format: Nama tindakan | 1 | catatan. Satu item per baris.</span>
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Resep
-            <textarea value={form.prescription} onChange={(event) => setForm({ ...form, prescription: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" rows={3} placeholder="Nama obat | 1 | catatan" />
-            <span className="mt-1 block text-xs text-zinc-500">Format: Nama obat | 1 | catatan. Satu item per baris.</span>
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Hasil laboratorium
-            <textarea value={form.labResult} onChange={(event) => setForm({ ...form, labResult: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Catatan klinis
-            <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-          </label>
-          <label className="block text-sm text-zinc-600">
-            Lampiran
-            <input type="file" multiple accept="image/*,.pdf,.txt,.doc,.docx" onChange={handleAttachmentChange} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2" />
-            <span className="mt-1 block text-xs text-zinc-500">File max 5 MB, format gambar/PDF/Word/Teks.</span>
-          </label>
-
-          <div className="flex flex-wrap gap-2">
-            <button type="submit" disabled={submitting} className="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70">{submitting ? 'Menyimpan...' : editingId ? 'Simpan perubahan' : 'Buat rekam medis'}</button>
-            {editingId ? <button type="button" onClick={resetForm} className="rounded-lg border border-zinc-200 px-4 py-2 text-sm text-zinc-700">Batal</button> : null}
-          </div>
-        </form>
+      {canManage && (canCreateRecord || canUpdateRecord) ? (
+        <MedicalRecordForm
+          appointments={appointments}
+          form={form}
+          editingId={editingId}
+          submitting={submitting}
+          canManage={canManage}
+          canCreateRecord={canCreateRecord}
+          canUpdateRecord={canUpdateRecord}
+          onFieldChange={handleFieldChange}
+          onAttachmentChange={handleAttachmentChange}
+          onSubmit={handleSubmit}
+          onCancel={resetForm}
+        />
       ) : (
         <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Anda hanya bisa melihat data rekam medis pada modul ini.</div>
       )}
 
       {selectedRecord ? (
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <p className="text-sm text-zinc-500">Detail kunjungan</p>
-              <h2 className="text-base font-semibold text-zinc-900">{selectedRecord.recordNumber ?? 'Rekam medis'}</h2>
-            </div>
-            <div className="flex gap-2">
-              <button type="button" onClick={() => window.print()} className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700">
-                <span className="flex items-center gap-2"><Printer className="h-4 w-4" /> Print</span>
-              </button>
-              <Link href={`/billing?medicalRecordId=${selectedRecord.id}&customerId=${selectedRecord.customer?.id ?? ''}&petId=${selectedRecord.pet?.id ?? ''}`} className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">
-                Invoice
-              </Link>
-              {canManage && canUpdateRecord ? <button type="button" onClick={() => handleEdit(selectedRecord)} className="rounded-lg border border-zinc-200 px-3 py-2 text-sm text-zinc-700">Edit</button> : null}
-              {canManage && canDeleteRecord ? <button type="button" onClick={() => void handleDelete(selectedRecord.id)} className="rounded-lg border border-rose-200 px-3 py-2 text-sm text-rose-600"><span className="flex items-center gap-2"><Trash2 className="h-4 w-4" /> Hapus</span></button> : null}
-            </div>
-          </div>
-          <dl className="mt-4 grid gap-4 text-sm text-zinc-700 md:grid-cols-2">
-            <div><dt className="font-medium text-zinc-500">Customer</dt><dd>{selectedRecord.customer?.name ?? '-'}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Hewan</dt><dd>{selectedRecord.pet?.name ?? '-'} ({selectedRecord.pet?.species ?? '-'})</dd></div>
-            <div><dt className="font-medium text-zinc-500">Dokter</dt><dd>{selectedRecord.doctor?.name ?? '-'}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Tanggal</dt><dd>{selectedRecord.date ? new Date(selectedRecord.date).toLocaleString('id-ID') : '-'}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Keluhan utama</dt><dd>{selectedRecord.chiefComplaint ?? '-'}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Diagnosis</dt><dd>{selectedRecord.diagnosis ?? '-'}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Tindakan</dt><dd>{(() => {
-              const items = parseStructuredItems(selectedRecord.treatment ?? '');
-              if (items.length === 0) return '-';
-              return (
-                <ul className="space-y-1">
-                  {items.map((item, index) => (
-                    <li key={`${item.name}-${index}`} className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-700">
-                      <span className="font-medium">{item.name}</span>
-                      {item.qty > 1 ? <span> × {item.qty}</span> : null}
-                      {item.notes ? <span className="text-zinc-500"> — {item.notes}</span> : null}
-                    </li>
-                  ))}
-                </ul>
-              );
-            })()}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Resep</dt><dd>{(() => {
-              const items = parseStructuredItems(selectedRecord.prescription ?? '');
-              if (items.length === 0) return '-';
-              return (
-                <ul className="space-y-1">
-                  {items.map((item, index) => (
-                    <li key={`${item.name}-${index}`} className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-700">
-                      <span className="font-medium">{item.name}</span>
-                      {item.qty > 1 ? <span> × {item.qty}</span> : null}
-                      {item.notes ? <span className="text-zinc-500"> — {item.notes}</span> : null}
-                    </li>
-                  ))}
-                </ul>
-              );
-            })()}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Hasil lab</dt><dd>{selectedRecord.labResult ?? '-'}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Catatan klinis</dt><dd>{selectedRecord.notes ?? '-'}</dd></div>
-            <div><dt className="font-medium text-zinc-500">Lampiran</dt><dd>{selectedRecord.attachments ? 'Tersedia' : 'Tidak ada'}</dd></div>
-          </dl>
-        </div>
+        <MedicalRecordDetail
+          record={selectedRecord}
+          canManage={canManage}
+          canUpdateRecord={canUpdateRecord}
+          canDeleteRecord={canDeleteRecord}
+          onEdit={handleEdit}
+          onDelete={handleDelete}
+        />
       ) : null}
 
       <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">

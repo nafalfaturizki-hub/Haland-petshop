@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription, isStaffRole } from '@/lib/permissions';
+import { getAuthorizedRoutes } from '@/lib/permission-matrix';
 import { getActorRole, getActorId, roundCurrency, normalizeOptionalText } from '@/lib/utils';
 import { generateInvoiceNumber } from '@/lib/numbering';
 import { deductProductStock, restoreProductStock, validateStockAvailability } from '@/lib/inventory-helpers';
@@ -46,7 +47,7 @@ export async function getInvoiceLookups() {
   const session = await auth();
   const actorRole = getActorRole(session);
 
-  if (!isStaffRole(actorRole)) {
+  if (!isStaffRole(actorRole) || !getAuthorizedRoutes(actorRole).includes('billing')) {
     return { success: false, message: 'Anda tidak berwenang mengakses data ini.' };
   }
 
@@ -84,7 +85,7 @@ export async function listInvoices() {
   const session = await auth();
   const actorRole = getActorRole(session);
 
-  if (!isStaffRole(actorRole)) {
+  if (!isStaffRole(actorRole) || !getAuthorizedRoutes(actorRole).includes('billing')) {
     return { success: false, message: 'Anda tidak berwenang melihat invoice.' };
   }
 
@@ -104,7 +105,7 @@ export async function getInvoiceById(id: string) {
   const session = await auth();
   const actorRole = getActorRole(session);
 
-  if (!isStaffRole(actorRole)) {
+  if (!isStaffRole(actorRole) || !getAuthorizedRoutes(actorRole).includes('billing')) {
     return { success: false, message: 'Anda tidak berwenang melihat invoice.' };
   }
 

@@ -6,6 +6,7 @@ import { archiveProduct, createProduct, exportProductsToCsv, importProductsFromC
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { formatCurrency } from '@/lib/utils';
+import { ProtectedRoute } from '@/components/shared/ProtectedRoute';
 
 type ProductRow = {
   id: string;
@@ -255,6 +256,7 @@ export default function PetshopProductsPage() {
   ];
 
   return (
+    <ProtectedRoute module="petshop" action="read">
     <div className="space-y-6">
       <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -403,5 +405,6 @@ export default function PetshopProductsPage() {
         </form>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }

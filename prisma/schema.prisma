@@ -406,6 +406,7 @@ model InvoiceItem {
   qty               Int             @default(1)
   price             Float           @default(0)
   subtotal          Float           @default(0)
+  createdAt         DateTime        @default(now())
 
   invoice         Invoice          @relation(fields: [invoiceId], references: [id])
   product         Product?         @relation(fields: [productId], references: [id])

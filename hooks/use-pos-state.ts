@@ -1,51 +1,22 @@
-'use client';
-
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { CheckCircle2, History, Printer, ShoppingBag, X } from 'lucide-react';
-import { formatCurrency, formatDate } from '@/lib/utils';
 import { createPosSaleWithRetry, listPosProducts, listProductCategories, validatePosSale } from '@/actions/pos';
 import { getInvoiceLookups } from '@/actions/invoice';
 import { calculatePosTotals, getPaymentSummary, roundCurrency, validatePosCheckout } from '@/lib/pos';
 import { usePolling } from '@/hooks/use-polling';
 import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
 import { usePermissions } from '@/hooks/use-permissions';
-import { ProtectedRoute } from '@/components/shared/ProtectedRoute';
-import { ProductCatalog } from '@/components/POS/ProductCatalog';
-import { CheckoutSummary } from '@/components/POS/CheckoutSummary';
+import { getPosCartSubtotal, type CartItem, type CategoryChip, type CustomerOption, type ProductRow } from '@/utils/pos-helpers';
 
-type ProductRow = {
-  id: string;
-  name: string;
-  sku: string | null;
-  barcode: string | null;
-  sellPrice: number;
-  stock: number;
-  categoryName: string | null;
-  imageUrl: string | null;
-};
+const CART_STORAGE_KEY = 'haland-pos-cart';
 
-type CartItem = {
-  productId: string;
-  name: string;
-  qty: number;
-  price: number;
-  stock: number;
-};
-
-type CustomerOption = { id: string; name: string };
-
-type CategoryChip = { id: string; name: string; activeProductCount: number };
-
-export default function PosPage() {
+export function usePosState() {
   const [searchQuery, setSearchQuery] = useState('');
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [categories, setCategories] = useState<CategoryChip[]>([]);
   const [activeCategoryId, setActiveCategoryId] = useState('');
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [hasMoreProducts, setHasMoreProducts] = useState(false);
-  const skipRef = useRef(0);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customerId, setCustomerId] = useState('');
@@ -55,14 +26,14 @@ export default function PosPage() {
   const [discountAmount, setDiscountAmount] = useState('0');
   const [paymentAmount, setPaymentAmount] = useState('0');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'NON_CASH'>('CASH');
-  const [cartSheetOpen, setCartSheetOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [taxRate, setTaxRate] = useState('0');
   const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
   const [receiptHtml, setReceiptHtml] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState<'catalog' | 'checkout'>('catalog');
+  const skipRef = useRef(0);
   const checkoutTimeoutRef = useRef<number | null>(null);
-  const CART_STORAGE_KEY = 'haland-pos-cart';
   const { canPerform, isOwner, isAdmin } = usePermissions();
   const canManageSales = canPerform('pos', 'create');
   const isRestrictedStaff = !isOwner && !isAdmin;
@@ -158,12 +129,10 @@ export default function PosPage() {
     return () => window.clearTimeout(timer);
   }, [activeCategoryId, searchQuery, loadProducts]);
 
-  async function handleSearch(event: React.FormEvent) {
-    event.preventDefault();
-    await loadProducts(false);
-  }
+  useRefetchOnFocus(loadCustomers);
+  usePolling(loadCustomers, 30000);
 
-  function addToCart(product: ProductRow) {
+  const addToCart = useCallback((product: ProductRow) => {
     if (product.stock <= 0) {
       toast.error('Stok produk tidak cukup.');
       return;
@@ -181,21 +150,38 @@ export default function PosPage() {
 
       return [...current, { productId: product.id, name: product.name, qty: 1, price: product.sellPrice, stock: product.stock }];
     });
-  }
+  }, []);
 
-  function updateQty(productId: string, qty: number) {
+  const updateQty = useCallback((productId: string, qty: number) => {
     setCart((current) =>
       current
         .map((item) => (item.productId === productId ? { ...item, qty: Math.max(1, Math.min(qty, item.stock)) } : item))
         .filter((item) => item.qty > 0),
     );
-  }
+  }, []);
 
-  function removeFromCart(productId: string) {
+  const removeFromCart = useCallback((productId: string) => {
     setCart((current) => current.filter((item) => item.productId !== productId));
-  }
+  }, []);
 
-  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.qty * item.price, 0), [cart]);
+  const clearCart = useCallback(() => {
+    setCart([]);
+  }, []);
+
+  const resetCheckout = useCallback(() => {
+    setDiscountAmount('0');
+    setPaymentAmount('0');
+    setTaxRate('0');
+    setCheckoutError(null);
+    setCreatedInvoice(null);
+    setReceiptHtml(null);
+    setCustomerId('');
+    setWalkInName('');
+    setBuyerMode('REGISTERED');
+    setCurrentStep('catalog');
+  }, []);
+
+  const subtotal = useMemo(() => getPosCartSubtotal(cart), [cart]);
   const discountValue = Number(discountAmount) || 0;
   const computedDiscount = useMemo(() => {
     if (discountType === 'PERCENTAGE') {
@@ -208,24 +194,31 @@ export default function PosPage() {
   const paymentSummary = useMemo(() => getPaymentSummary(payment, totals.totalAmount, paymentMethod), [payment, paymentMethod, totals.totalAmount]);
   const paymentError = paymentMethod === 'CASH' && !paymentSummary.isSufficient ? `Jumlah bayar kurang ${formatCurrency(paymentSummary.shortageAmount)}.` : '';
 
-  async function handleCheckout(event?: React.FormEvent | React.MouseEvent) {
-    event?.preventDefault?.();
+  const handleSearch = useCallback(async (event: React.FormEvent) => {
+    event.preventDefault();
+    await loadProducts(false);
+  }, [loadProducts]);
+
+  const handleCheckout = useCallback(async () => {
     if (!canManageSales) {
       setCheckoutError('Anda tidak memiliki izin untuk melakukan transaksi POS.');
       toast.error('Anda tidak memiliki izin untuk melakukan transaksi POS.');
       return;
     }
+
     if (submitting) return;
     if (cart.length === 0) {
       setCheckoutError('Keranjang kosong.');
       toast.error('Keranjang kosong.');
       return;
     }
+
     if (buyerMode === 'REGISTERED' && !customerId) {
       setCheckoutError('Pilih pelanggan terdaftar atau beralih ke input manual.');
       toast.error('Pilih pelanggan terdaftar atau beralih ke input manual.');
       return;
     }
+
     if (buyerMode === 'MANUAL' && !walkInName.trim()) {
       setCheckoutError('Isi nama pembeli manual.');
       toast.error('Isi nama pembeli manual.');
@@ -268,12 +261,7 @@ export default function PosPage() {
       const validationResult = await validatePosSale({
         customerId: buyerMode === 'REGISTERED' ? customerId || undefined : undefined,
         walkInName: buyerMode === 'MANUAL' ? walkInName.trim() : undefined,
-        items: cart.map((item) => ({
-          productId: item.productId,
-          qty: item.qty,
-          price: item.price,
-          description: item.name,
-        })),
+        items: cart.map((item) => ({ productId: item.productId, qty: item.qty, price: item.price, description: item.name })),
         discountType,
         discountAmount: discountValue,
         paymentMethod,
@@ -290,12 +278,7 @@ export default function PosPage() {
       const result = await createPosSaleWithRetry({
         customerId: buyerMode === 'REGISTERED' ? customerId || undefined : undefined,
         walkInName: buyerMode === 'MANUAL' ? walkInName.trim() : undefined,
-        items: cart.map((item) => ({
-          productId: item.productId,
-          qty: item.qty,
-          price: item.price,
-          description: item.name,
-        })),
+        items: cart.map((item) => ({ productId: item.productId, qty: item.qty, price: item.price, description: item.name })),
         discountType,
         discountAmount: discountValue,
         paymentMethod,
@@ -311,11 +294,8 @@ export default function PosPage() {
 
       setCreatedInvoice(result.invoice);
       setReceiptHtml(result.receiptHtml ?? null);
-      setCart([]);
-      setDiscountAmount('0');
-      setPaymentAmount('0');
-      setTaxRate('0');
-      setCheckoutError(null);
+      clearCart();
+      resetCheckout();
       toast.success(`Transaksi berhasil. ${result.changeAmount && result.changeAmount > 0 ? `Kembalian ${formatCurrency(result.changeAmount)}.` : 'Pembayaran lunas.'}`);
     } catch (error) {
       console.error(error);
@@ -328,169 +308,59 @@ export default function PosPage() {
       checkoutTimeoutRef.current = null;
       setSubmitting(false);
     }
-  }
+  }, [canManageSales, cart, buyerMode, customerId, walkInName, discountType, discountValue, paymentMethod, payment, subtotal, taxRate, submitting, clearCart]);
 
-  useRefetchOnFocus(loadCustomers);
-  usePolling(loadCustomers, 30000);
+  return {
+    searchQuery,
+    setSearchQuery,
+    products,
+    categories,
+    activeCategoryId,
+    setActiveCategoryId,
+    loadingProducts,
+    hasMoreProducts,
+    customers,
+    cart,
+    customerId,
+    setCustomerId,
+    buyerMode,
+    setBuyerMode,
+    walkInName,
+    setWalkInName,
+    discountType,
+    setDiscountType,
+    discountAmount,
+    setDiscountAmount,
+    paymentAmount,
+    setPaymentAmount,
+    paymentMethod,
+    setPaymentMethod,
+    taxRate,
+    setTaxRate,
+    submitting,
+    createdInvoice,
+    receiptHtml,
+    checkoutError,
+    currentStep,
+    setCurrentStep,
+    canManageSales,
+    isRestrictedStaff,
+    subtotal,
+    computedDiscount,
+    totals,
+    paymentSummary,
+    paymentError,
+    addToCart,
+    updateQty,
+    removeFromCart,
+    clearCart,
+    handleSearch,
+    loadMoreProducts,
+    handleCheckout,
+    setCheckoutError,
+  };
+}
 
-  function handlePrint() {
-    if (!receiptHtml && !createdInvoice) return;
-    const popup = window.open('', '_blank');
-    if (popup) {
-      popup.document.write(receiptHtml ?? `<!DOCTYPE html><html><body><p>Struk tidak tersedia.</p></body></html>`);
-      popup.document.close();
-      popup.focus();
-      popup.print();
-    }
-  }
-
-  const checkoutPanel = (
-    <CheckoutSummary
-      buyerMode={buyerMode}
-      customers={customers}
-      customerId={customerId}
-      walkInName={walkInName}
-      cart={cart}
-      subtotal={subtotal}
-      discountType={discountType}
-      discountAmount={discountAmount}
-      taxRate={taxRate}
-      paymentMethod={paymentMethod}
-      paymentAmount={paymentAmount}
-      computedDiscount={computedDiscount}
-      totals={totals}
-      paymentSummary={paymentSummary}
-      paymentError={paymentError}
-      checkoutError={checkoutError}
-      submitting={submitting}
-      createdInvoice={createdInvoice}
-      canManageSales={canManageSales}
-      onBuyerModeChange={(mode) => {
-        setBuyerMode(mode);
-        if (mode === 'REGISTERED') {
-          setWalkInName('');
-        }
-      }}
-      onCustomerChange={setCustomerId}
-      onWalkInNameChange={setWalkInName}
-      onDiscountTypeChange={setDiscountType}
-      onDiscountAmountChange={setDiscountAmount}
-      onTaxRateChange={setTaxRate}
-      onPaymentMethodChange={setPaymentMethod}
-      onPaymentAmountChange={setPaymentAmount}
-      onQuantityChange={updateQty}
-      onRemoveItem={removeFromCart}
-      onClearCart={() => setCart([])}
-      onCheckout={handleCheckout}
-      onPrint={handlePrint}
-    />
-  );
-
-  return (
-    <ProtectedRoute module="pos" action="read">
-    <div className="space-y-6">
-      <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm text-zinc-500">Modul POS</p>
-            <h1 className="text-xl font-semibold text-zinc-900">Transaksi penjualan produk</h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-zinc-700">
-            <ShoppingBag className="h-5 w-5" />
-            <span className="text-sm">{isRestrictedStaff ? 'Kasir / Staff Terbatas' : 'Owner & Admin Klinik'}</span>
-            <Link href="/pos/riwayat" className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50">
-              <History className="h-4 w-4" /> Riwayat transaksi
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-[0.64fr_0.36fr]">
-        <ProductCatalog
-          products={products}
-          categories={categories}
-          activeCategoryId={activeCategoryId}
-          loadingProducts={loadingProducts}
-          hasMoreProducts={hasMoreProducts}
-          searchQuery={searchQuery}
-          onSearchQueryChange={setSearchQuery}
-          onCategoryChange={setActiveCategoryId}
-          onSearch={handleSearch}
-          onLoadMore={loadMoreProducts}
-          onAddToCart={addToCart}
-        />
-
-        <section className="lg:hidden">
-          <div className="mb-4 rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm text-zinc-500">Ringkasan keranjang</p>
-                <p className="text-base font-semibold text-zinc-900">{cart.length} item • {formatCurrency(totals.totalAmount)}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCartSheetOpen(true)}
-                className="inline-flex items-center gap-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800"
-              >
-                Lihat detail
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <div className="hidden lg:block">
-          {checkoutPanel}
-        </div>
-
-        {cartSheetOpen ? (
-          <div className="fixed inset-0 z-50 flex items-end bg-black/40 backdrop-blur-sm px-4 py-6 sm:px-6">
-            <div className="w-full max-h-[92vh] overflow-auto rounded-t-[2rem] bg-white p-5 shadow-2xl">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-zinc-500">Detail pembayaran</p>
-                  <h2 className="text-lg font-semibold text-zinc-900">Ringkasan pesanan</h2>
-                </div>
-                <button type="button" onClick={() => setCartSheetOpen(false)} className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-zinc-700 transition hover:bg-zinc-100">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              {checkoutPanel}
-            </div>
-          </div>
-        ) : null}
-      </div>
-
-      {createdInvoice ? (
-        <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 text-zinc-700">
-              <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-              <div>
-                <h2 className="text-base font-semibold text-zinc-900">Transaksi selesai</h2>
-                <p className="text-sm text-zinc-500">Invoice siap dicetak.</p>
-              </div>
-            </div>
-            <button type="button" onClick={handlePrint} className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50">
-              <Printer className="h-4 w-4" /> Cetak
-            </button>
-          </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl bg-zinc-50 p-3 text-sm text-zinc-700">
-              <p className="text-zinc-500">Invoice</p>
-              <p className="mt-2 font-semibold text-zinc-900">{createdInvoice.invoiceNumber}</p>
-            </div>
-            <div className="rounded-2xl bg-zinc-50 p-3 text-sm text-zinc-700">
-              <p className="text-zinc-500">Pelanggan</p>
-              <p className="mt-2 font-semibold text-zinc-900">{createdInvoice.walkInName?.trim() || createdInvoice.customer.name}</p>
-            </div>
-            <div className="rounded-2xl bg-zinc-50 p-3 text-sm text-zinc-700">
-              <p className="text-zinc-500">Total</p>
-              <p className="mt-2 font-semibold text-zinc-900">{formatCurrency(createdInvoice.totalAmount)}</p>
-            </div>
-          </div>
-        </section>
-      ) : null}
-    </div>
-    </ProtectedRoute>
-  );
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value);
 }

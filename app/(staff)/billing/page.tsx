@@ -10,6 +10,7 @@ import { listProducts } from '@/actions/product';
 import { parseStructuredItems } from '@/lib/medical-record-utils';
 import { buildInvoicePrefillFromSearchParams } from '@/lib/route-prefill';
 import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
+import { ProtectedRoute } from '@/components/shared/ProtectedRoute';
 
 type InvoiceItemForm = {
   type: 'KONSULTASI' | 'TINDAKAN' | 'OBAT' | 'PET_HOTEL' | 'PRODUK';
@@ -314,6 +315,7 @@ export default function BillingPage() {
   }));
 
   return (
+    <ProtectedRoute module="billing" action="read">
     <div className="space-y-6">
       <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -660,5 +662,6 @@ export default function BillingPage() {
         </section>
       </div>
     </div>
+    </ProtectedRoute>
   );
 }
