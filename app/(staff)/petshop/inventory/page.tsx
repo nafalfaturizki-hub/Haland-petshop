@@ -5,6 +5,7 @@ import { Warehouse, ArrowDown, ArrowUp, RefreshCw, Package } from 'lucide-react'
 import { listInventory, recordStockMovement, listStockMovements } from '@/actions/inventory';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { ProtectedRoute } from '@/components/shared/ProtectedRoute';
 
 type InventoryRow = {
   id: string;
@@ -88,6 +89,7 @@ export default function InventoryPage() {
   const selectedProductName = products.find((p) => p.id === selectedProduct)?.name;
 
   return (
+    <ProtectedRoute module="petshop" action="read">
     <div className="space-y-6">
       <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
         <p className="text-sm text-zinc-500">Modul Inventori</p>
@@ -181,5 +183,6 @@ export default function InventoryPage() {
         </div>
       )}
     </div>
+    </ProtectedRoute>
   );
 }

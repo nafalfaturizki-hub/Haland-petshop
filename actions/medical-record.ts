@@ -9,6 +9,7 @@ import { getActorRole, getActorId, normalizeOptionalText, normalizeOptionalNumbe
 import { generateMedicalRecordNumber } from '@/lib/numbering';
 import { notifyUser } from '@/lib/notifications-helper';
 import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription } from '@/lib/permissions';
+import { getAuthorizedRoutes } from '@/lib/permission-matrix';
 
 const MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_TYPES = [
@@ -161,6 +162,10 @@ export async function listMedicalRecords() {
     });
 
     return { success: true, records };
+  }
+
+  if (!getAuthorizedRoutes(actorRole).includes('medical-records')) {
+    return { success: false, message: 'Anda tidak berwenang mengakses rekam medis.' };
   }
 
   const where = actorRole === 'DOKTER' ? { doctorId: actorId } : undefined;

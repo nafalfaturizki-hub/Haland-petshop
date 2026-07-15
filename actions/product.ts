@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { canPerformAction, isStaffRole } from '@/lib/permissions';
+import { getAuthorizedRoutes } from '@/lib/permission-matrix';
 import { getActorRole, getActorId, normalizeOptionalText } from '@/lib/utils';
 
 export type ParsedProductRow = {
@@ -132,7 +133,7 @@ export async function listProductCategories() {
   const actorRole = getActorRole(session);
   const actorId = getActorId(session);
 
-  if (!actorId || !isStaffRole(actorRole)) {
+  if (!actorId || !isStaffRole(actorRole) || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: 'Anda tidak berwenang melihat data ini.' };
   }
 
@@ -154,7 +155,7 @@ export async function createProductCategory(input: z.infer<typeof categorySchema
   }
 
   const permission = ensureAccess(actorRole, 'create');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -177,7 +178,7 @@ export async function updateProductCategory(input: z.infer<typeof updateCategory
   }
 
   const permission = ensureAccess(actorRole, 'update');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -196,7 +197,7 @@ export async function deleteProductCategory(id: string) {
   const actorId = getActorId(session);
 
   const permission = ensureAccess(actorRole, 'delete');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -218,7 +219,7 @@ export async function listSuppliers() {
   const actorId = getActorId(session);
 
   const permission = ensureAccess(actorRole, 'read');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -240,7 +241,7 @@ export async function createSupplier(input: z.infer<typeof supplierSchema>) {
   }
 
   const permission = ensureAccess(actorRole, 'create');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -263,7 +264,7 @@ export async function updateSupplier(input: z.infer<typeof updateSupplierSchema>
   }
 
   const permission = ensureAccess(actorRole, 'update');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -282,7 +283,7 @@ export async function deleteSupplier(id: string) {
   const actorId = getActorId(session);
 
   const permission = ensureAccess(actorRole, 'delete');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -304,7 +305,7 @@ export async function listProducts(includeArchived = false) {
   const actorId = getActorId(session);
 
   const permission = ensureAccess(actorRole, 'read');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -328,7 +329,7 @@ export async function createProduct(input: z.infer<typeof productSchema>) {
   }
 
   const permission = ensureAccess(actorRole, 'create');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -395,7 +396,7 @@ export async function updateProduct(input: z.infer<typeof updateProductSchema>) 
   }
 
   const permission = ensureAccess(actorRole, 'update');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -457,7 +458,7 @@ export async function exportProductsToCsv() {
   const actorId = getActorId(session);
 
   const permission = ensureAccess(actorRole, 'read');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -495,7 +496,7 @@ export async function importProductsFromCsv(rows: ParsedProductRow[]) {
   const actorId = getActorId(session);
 
   const permission = ensureAccess(actorRole, 'create');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -634,7 +635,7 @@ export async function archiveProduct(id: string) {
   const actorId = getActorId(session);
 
   const permission = ensureAccess(actorRole, 'update');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 
@@ -668,7 +669,7 @@ export async function restoreProduct(id: string) {
   const actorId = getActorId(session);
 
   const permission = ensureAccess(actorRole, 'update');
-  if (!actorId || !permission.allowed) {
+  if (!actorId || !permission.allowed || !getAuthorizedRoutes(actorRole).includes('petshop')) {
     return { success: false, message: permission.message };
   }
 

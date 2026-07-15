@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma, getOrCreateGuestCustomer } from '@/lib/db';
 import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription, isStaffRole } from '@/lib/permissions';
+import { getAuthorizedRoutes } from '@/lib/permission-matrix';
 import { notifyUser } from '@/lib/notifications-helper';
 import { calculatePosTotals, getPaymentStatus, roundCurrency, validatePosCheckout } from '@/lib/pos';
 import { getActorRole } from '@/lib/utils';
@@ -126,7 +127,7 @@ export async function listProductCategories() {
   const session = await auth();
   const actorRole = getActorRole(session);
 
-  if (!canPerformAction(actorRole, 'pos', 'read')) {
+  if (!canPerformAction(actorRole, 'pos', 'read') || !getAuthorizedRoutes(actorRole).includes('pos')) {
     return { success: false, message: 'Anda tidak berwenang mengakses kategori produk.' };
   }
 
@@ -377,7 +378,7 @@ export async function getPosTransactionHistory(input: z.infer<typeof getPosTrans
     return { success: false, message: 'Parameter riwayat transaksi tidak valid.' };
   }
 
-  if (!actorId || !canPerformAction(actorRole, 'pos', 'read')) {
+  if (!actorId || !canPerformAction(actorRole, 'pos', 'read') || !getAuthorizedRoutes(actorRole).includes('pos')) {
     return { success: false, message: 'Anda tidak berwenang melihat riwayat transaksi.' };
   }
 
@@ -465,7 +466,7 @@ export async function getPosTransactionDetail(invoiceId: string) {
   const actorRole = getActorRole(session);
   const actorId = session?.user?.id;
 
-  if (!actorId || !canPerformAction(actorRole, 'pos', 'read')) {
+  if (!actorId || !canPerformAction(actorRole, 'pos', 'read') || !getAuthorizedRoutes(actorRole).includes('pos')) {
     return { success: false, message: 'Anda tidak berwenang melihat detail transaksi.' };
   }
 

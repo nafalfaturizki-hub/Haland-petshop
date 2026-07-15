@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { canAccessModule, canPerformAction, canManageTargetRole, enforceActionPermission, getPermissionAuditEntity } from '../lib/permissions';
+import { canPerform, getAuthorizedRoutes } from '../lib/permission-matrix';
 
 test('OWNER can access every module and every action', () => {
   const modules = ['dashboard', 'customers', 'pets', 'appointments', 'medical-records', 'procedures', 'pet-hotel', 'petshop', 'pos', 'billing', 'reports', 'users', 'settings', 'notifications', 'customer-portal', 'profile'] as const;
@@ -60,6 +61,20 @@ test('CUSTOMER has minimal access and cannot manage other modules', () => {
   assert.equal(canPerformAction('CUSTOMER', 'profile', 'update'), false);
   assert.equal(canPerformAction('CUSTOMER', 'customer-portal', 'read'), true);
   assert.equal(canPerformAction('CUSTOMER', 'customer-portal', 'create'), false);
+});
+
+test('new permission matrix blocks DOKTER from POS, billing, and petshop routes', () => {
+  assert.equal(canPerform('DOKTER', 'pos'), false);
+  assert.equal(canPerform('DOKTER', 'billing'), false);
+  assert.equal(canPerform('DOKTER', 'petshop'), false);
+  assert.equal(canPerform('OWNER', 'pos'), true);
+  assert.equal(canPerform('ADMIN_KLINIK', 'petshop'), true);
+});
+
+test('getAuthorizedRoutes exposes the expected route set per role', () => {
+  assert.deepEqual(getAuthorizedRoutes('DOKTER'), ['dashboard', 'customers', 'pets', 'appointments', 'medical-records', 'procedures', 'pet-hotel', 'reports', 'profile']);
+  assert.deepEqual(getAuthorizedRoutes('ADMIN_KLINIK'), ['dashboard', 'customers', 'pets', 'appointments', 'medical-records', 'procedures', 'pet-hotel', 'petshop', 'pos', 'billing', 'reports', 'users', 'notifications', 'profile']);
+  assert.deepEqual(getAuthorizedRoutes('CUSTOMER'), ['profile', 'customer-portal']);
 });
 
 test('canManageTargetRole allows OWNER to manage every role', () => {

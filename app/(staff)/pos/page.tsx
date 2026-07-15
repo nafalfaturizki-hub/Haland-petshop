@@ -11,6 +11,7 @@ import { calculatePosTotals, getPaymentSummary, roundCurrency, validatePosChecko
 import { usePolling } from '@/hooks/use-polling';
 import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
 import { usePermissions } from '@/hooks/use-permissions';
+import { ProtectedRoute } from '@/components/shared/ProtectedRoute';
 
 type ProductRow = {
   id: string;
@@ -492,6 +493,7 @@ export default function PosPage() {
   );
 
   return (
+    <ProtectedRoute module="pos" action="read">
     <div className="space-y-6">
       <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -686,5 +688,6 @@ export default function PosPage() {
         </section>
       ) : null}
     </div>
+    </ProtectedRoute>
   );
 }
