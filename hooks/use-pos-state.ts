@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Invoice } from '@prisma/client';
 import { toast } from 'sonner';
 import { createPosSaleWithRetry, listPosProducts, listProductCategories, validatePosSale } from '@/actions/pos';
 import { getInvoiceLookups } from '@/actions/invoice';
-import { calculatePosTotals, getPaymentSummary, roundCurrency, validatePosCheckout } from '@/lib/pos';
+import { calculatePosTotals, getPaymentSummary, roundCurrency } from '@/lib/pos';
+import { validateBeforeCheckout } from '@/lib/pos-validation';
 import { usePolling } from '@/hooks/use-polling';
 import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -28,7 +30,7 @@ export function usePosState() {
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'NON_CASH'>('CASH');
   const [submitting, setSubmitting] = useState(false);
   const [taxRate, setTaxRate] = useState('0');
-  const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
+  const [createdInvoice, setCreatedInvoice] = useState<Invoice | null>(null);
   const [receiptHtml, setReceiptHtml] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState<'catalog' | 'checkout'>('catalog');
@@ -225,10 +227,11 @@ export function usePosState() {
       return;
     }
 
-    const validation = validatePosCheckout({
+    const validation = validateBeforeCheckout({
+      buyerMode,
       customerId,
       walkInName,
-      items: cart.map((item) => ({ qty: item.qty, price: item.price })),
+      items: cart.map((item) => ({ productId: item.productId, qty: item.qty, price: item.price })),
       discountType,
       discountAmount: discountValue,
       paymentMethod,
@@ -292,7 +295,7 @@ export function usePosState() {
         return;
       }
 
-      setCreatedInvoice(result.invoice);
+      setCreatedInvoice(result.invoice ?? null);
       setReceiptHtml(result.receiptHtml ?? null);
       clearCart();
       resetCheckout();

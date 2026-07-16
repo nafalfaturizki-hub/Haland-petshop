@@ -5,10 +5,6 @@ import { usePathname } from 'next/navigation';
 import { BarChart3, CalendarDays, CircleUserRound, House, Package2, ScrollText, Settings, ShoppingBag, Stethoscope, Users, ReceiptText, Hotel, ShieldCheck } from 'lucide-react';
 import { usePermissions } from '@/hooks/use-permissions';
 
-interface SidebarProps {
-  role: any;
-}
-
 const staffMenu = [
   { href: '/dashboard', label: 'Beranda', icon: House, module: 'dashboard' as const },
   { href: '/customers', label: 'Pelanggan', icon: Users, module: 'customers' as const },
@@ -26,7 +22,7 @@ const staffMenu = [
   { href: '/profile', label: 'Profil', icon: CircleUserRound, module: 'profile' as const },
 ];
 
-export function Sidebar({ role }: SidebarProps) {
+export function Sidebar() {
   const pathname = usePathname();
   const { canAccess } = usePermissions();
   const visibleItems = staffMenu.filter((item) => canAccess(item.module));

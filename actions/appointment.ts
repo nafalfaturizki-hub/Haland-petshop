@@ -1,12 +1,13 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { getActorRole, getActorId } from '@/lib/utils';
 import { notifyUser } from '@/lib/notifications-helper';
-import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription } from '@/lib/permissions';
+import { enforceActionPermission, getPermissionDeniedAuditDescription } from '@/lib/permissions';
 
 const appointmentSchema = z.object({
   petId: z.string().min(1, 'Pilih hewan terlebih dahulu.'),
@@ -142,7 +143,7 @@ export async function listAppointments() {
     return { success: true, appointments };
   }
 
-  const queryOptions: any = {
+  const queryOptions: Prisma.AppointmentFindManyArgs = {
     orderBy: { date: 'asc' },
     include: { pet: { select: { id: true, name: true, species: true } }, doctor: { select: { id: true, name: true } }, customer: { select: { id: true, name: true } } },
   };
@@ -216,7 +217,7 @@ export async function createAppointment(input: z.infer<typeof appointmentSchema>
 
     // ATOMIC: Wrap conflict check and create in transaction to prevent race condition
     try {
-      const appointment = await prisma.$transaction(async (tx: any) => {
+      const appointment = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         const doctorConflict = await findDoctorConflict(parsed.data.doctorId || null, new Date(parsed.data.date));
         if (doctorConflict) {
           throw new Error('Dokter sudah memiliki jadwal pada waktu yang dipilih.');
@@ -281,7 +282,7 @@ export async function createAppointment(input: z.infer<typeof appointmentSchema>
 
   // ATOMIC: Wrap conflict check and create in transaction to prevent race condition
   try {
-    const appointment = await prisma.$transaction(async (tx: any) => {
+    const appointment = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const doctorConflict = await findDoctorConflict(parsed.data.doctorId || null, new Date(parsed.data.date));
       if (doctorConflict) {
         throw new Error('Dokter sudah memiliki jadwal pada waktu yang dipilih.');

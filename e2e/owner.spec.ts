@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login, logout, ensureLoggedOut, testUsers } from './auth';
+import { login, logout, ensureLoggedOut } from './auth';
 
 test.describe('OWNER - Full Access Tests', () => {
   test.beforeEach(async ({ page }) => {

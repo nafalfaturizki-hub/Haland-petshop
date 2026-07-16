@@ -127,7 +127,7 @@ function applySearch(rows: Array<Record<string, unknown>>, query: string) {
   return rows.filter((row) => Object.values(row).some((value) => searchMatches(value, normalized)));
 }
 
-async function getFilterOptions(actorRole?: string) {
+async function getFilterOptions(_actorRole?: string) {
   const [doctors, customers, pets, rooms, categories] = await Promise.all([
     prisma.user.findMany({ where: { role: 'DOKTER' }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     prisma.customer.findMany({ where: { isGuest: false }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),

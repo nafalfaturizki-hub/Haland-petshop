@@ -1,5 +1,6 @@
 'use client';
 
+import type { Invoice } from '@prisma/client';
 import { ArrowRight, Banknote, Printer } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 
@@ -21,7 +22,7 @@ type CheckoutSummaryProps = {
   paymentError: string;
   checkoutError: string | null;
   submitting: boolean;
-  createdInvoice: any | null;
+  createdInvoice: Invoice | null;
   canManageSales: boolean;
   onBuyerModeChange: (mode: 'REGISTERED' | 'MANUAL') => void;
   onCustomerChange: (value: string) => void;

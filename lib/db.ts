@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma, type Customer } from '@prisma/client';
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
@@ -8,7 +8,7 @@ if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
 }
 
-export async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null) {
+export async function createAuditLog(userId: string, action: string, entity: string, entityId: string | null, description: string | null): Promise<void> {
   try {
     await prisma.auditLog.create({
       data: {
@@ -24,7 +24,7 @@ export async function createAuditLog(userId: string, action: string, entity: str
   }
 }
 
-export async function getOrCreateGuestCustomer() {
+export async function getOrCreateGuestCustomer(): Promise<Customer> {
   const guestName = 'Pelanggan Umum (Walk-in)';
   const existingGuest = await prisma.customer.findFirst({ where: { isGuest: true } });
   if (existingGuest) {
@@ -50,6 +50,6 @@ export async function getOrCreateGuestCustomer() {
   }
 }
 
-export async function getCustomerForSession(sessionId: string) {
+export async function getCustomerForSession(sessionId: string): Promise<Customer | null> {
   return prisma.customer.findFirst({ where: { userId: sessionId } });
 }

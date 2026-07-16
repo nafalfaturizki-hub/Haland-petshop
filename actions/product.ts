@@ -504,7 +504,7 @@ export async function importProductsFromCsv(rows: ParsedProductRow[]) {
     return { success: false, message: 'Dokter tidak dapat mengimpor produk.' };
   }
 
-  const normalizedRows: Array<{ row: ParsedProductRow; parsed?: any; error?: string }> = [];
+  const normalizedRows: Array<{ row: ParsedProductRow; parsed?: z.infer<typeof importProductRowSchema>; error?: string }> = [];
   for (const row of rows) {
     const parsed = importProductRowSchema.safeParse(row);
     if (!parsed.success) {
@@ -527,9 +527,16 @@ export async function importProductsFromCsv(rows: ParsedProductRow[]) {
           continue;
         }
 
-        const payload = entry.parsed as any;
+        const payload = entry.parsed;
+        if (!payload) {
+          results.failed += 1;
+          results.failures.push({ row: rowNumber, reason: 'Data produk tidak valid.' });
+          continue;
+        }
+
         const normalizedSku = normalizeOptionalText(payload.sku)?.toUpperCase() ?? null;
         const normalizedBarcode = normalizeOptionalText(payload.barcode) ?? null;
+        const status = payload.status === 'ARCHIVED' ? 'ARCHIVED' as const : 'ACTIVE' as const;
 
         if (payload.sellPrice < Math.max(payload.buyPrice, payload.costPrice ?? 0)) {
           results.failed += 1;
@@ -579,9 +586,9 @@ export async function importProductsFromCsv(rows: ParsedProductRow[]) {
               stock: payload.stock,
               minStock: payload.minStock,
               maxStock: payload.maxStock ?? null,
-              status: payload.status ?? 'ACTIVE',
+              status,
               imageUrl: normalizeOptionalText(payload.imageUrl),
-              isArchived: (payload.status ?? 'ACTIVE') === 'ARCHIVED',
+              isArchived: status === 'ARCHIVED',
             },
           });
           results.updated += 1;
@@ -602,9 +609,9 @@ export async function importProductsFromCsv(rows: ParsedProductRow[]) {
               stock: payload.stock,
               minStock: payload.minStock,
               maxStock: payload.maxStock ?? null,
-              status: payload.status ?? 'ACTIVE',
+              status,
               imageUrl: normalizeOptionalText(payload.imageUrl),
-              isArchived: (payload.status ?? 'ACTIVE') === 'ARCHIVED',
+              isArchived: status === 'ARCHIVED',
             },
           });
           results.created += 1;

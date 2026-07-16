@@ -26,8 +26,6 @@ async function generatePrefixedNumber(prefixKey: 'invoicePrefix' | 'medicalRecor
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
   // SECURITY: Retry with exponential backoff on unique constraint violation (TOCTOU race condition)
-  let lastError: Error | null = null;
-  
   for (let retryAttempt = 0; retryAttempt < 3; retryAttempt += 1) {
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const random = Math.floor(1000 + Math.random() * 9000);

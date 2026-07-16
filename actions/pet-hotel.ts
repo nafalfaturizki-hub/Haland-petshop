@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { createInvoice } from '@/actions/invoice';
 import { auth } from '@/lib/auth';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
+import type { Prisma } from '@prisma/client';
 import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription, isStaffRole } from '@/lib/permissions';
 import { getActorRole, getActorId, normalizeOptionalText } from '@/lib/utils';
 import { generateBookingNumber } from '@/lib/numbering';
@@ -52,6 +53,7 @@ const extendPetHotelBookingSchema = z.object({
 const HOTEL_DAILY_RATE = 100000;
 
 type RoomStatus = 'AVAILABLE' | 'RESERVED' | 'OCCUPIED' | 'MAINTENANCE' | 'INACTIVE';
+type PetHotelTransactionClient = Prisma.TransactionClient;
 
 function getStartOfDay(date: Date) {
   const normalized = new Date(date);
@@ -397,7 +399,7 @@ export async function createPetHotelBooking(input: z.infer<typeof petHotelBookin
     }
   }
 
-  const booking = await prisma.$transaction(async (tx: any) => {
+  const booking = await prisma.$transaction(async (tx: PetHotelTransactionClient) => {
     const createdBooking = await tx.petHotelBooking.create({
       data: {
         petId: parsed.data.petId,
@@ -490,7 +492,7 @@ export async function cancelPetHotelBooking(id: string) {
     return { success: false, message: 'Hanya reservasi yang masih booked yang bisa dibatalkan.' };
   }
 
-  const updated = await prisma.$transaction(async (tx: any) => {
+  const updated = await prisma.$transaction(async (tx: PetHotelTransactionClient) => {
     const cancelled = await tx.petHotelBooking.update({
       where: { id },
       data: { status: 'CANCELLED' },
@@ -537,7 +539,7 @@ export async function deletePetHotelBooking(id: string) {
     return { success: false, message: 'Reservasi yang sudah check-in atau check-out tidak bisa dihapus.' };
   }
 
-  await prisma.$transaction(async (tx: any) => {
+  await prisma.$transaction(async (tx: PetHotelTransactionClient) => {
     await tx.petHotelBooking.delete({ where: { id } });
     await tx.auditLog.create({
       data: {
@@ -612,7 +614,7 @@ export async function checkInPetHotelBooking(id: string) {
     return { success: false, message: 'Kamar sudah ditempati untuk rentang tanggal tersebut.' };
   }
 
-  const updated = await prisma.$transaction(async (tx: any) => {
+  const updated = await prisma.$transaction(async (tx: PetHotelTransactionClient) => {
     const checkedIn = await tx.petHotelBooking.update({
       where: { id },
       data: { roomId, status: 'CHECKED_IN', actualCheckInAt: new Date() },
@@ -672,7 +674,7 @@ export async function checkOutPetHotelBooking(id: string) {
     actualCheckInAt: (booking as typeof booking & { actualCheckInAt: Date | null }).actualCheckInAt ?? null,
     actualCheckOutAt: (booking as typeof booking & { actualCheckOutAt: Date | null }).actualCheckOutAt ?? null,
   });
-  const updated = await prisma.$transaction(async (tx: any) => {
+  const updated = await prisma.$transaction(async (tx: PetHotelTransactionClient) => {
     const checkedOut = await tx.petHotelBooking.update({
       where: { id },
       data: { status: 'CHECKED_OUT', actualCheckOutAt: new Date() },
@@ -748,7 +750,7 @@ export async function extendPetHotelBooking(input: z.infer<typeof extendPetHotel
     return { success: false, message: 'Tanggal check-out baru tidak valid.' };
   }
 
-  const updated = await prisma.$transaction(async (tx: any) => {
+  const updated = await prisma.$transaction(async (tx: PetHotelTransactionClient) => {
     const extended = await tx.petHotelBooking.update({
       where: { id: parsed.data.id },
       data: { checkOutDate: newCheckOutDate, notes: normalizeOptionalText(`${booking.notes ?? ''}\nPerpanjangan sampai ${newCheckOutDate.toISOString().slice(0, 10)}`.trim()) },
@@ -791,7 +793,7 @@ export async function createPetHotelLog(input: z.infer<typeof petHotelLogSchema>
     return { success: false, message: 'Reservasi tidak valid untuk pencatatan log.' };
   }
 
-  const log = await prisma.$transaction(async (tx: any) => {
+  const log = await prisma.$transaction(async (tx: PetHotelTransactionClient) => {
     const createdLog = await tx.petHotelLog.create({
       data: {
         bookingId: parsed.data.bookingId,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
-import { canPerform, getAuthorizedRoutes } from '@/lib/permission-matrix';
+import { canPerform } from '@/lib/permission-matrix';
 
 const loginRateLimitWindowMs = 15 * 60 * 1000;
 const loginRateLimitMaxAttempts = 5;

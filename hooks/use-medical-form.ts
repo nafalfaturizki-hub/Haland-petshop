@@ -82,7 +82,28 @@ export function buildMedicalRecordFormState(record: {
   };
 }
 
-export function createMedicalRecordPayload(form: MedicalRecordFormState, editingId?: string | null) {
+export type MedicalRecordPayload = {
+  id?: string;
+  appointmentId: string;
+  date: string;
+  chiefComplaint: string;
+  history: string;
+  physicalExam: string;
+  vitalSigns: string;
+  diagnosis: string;
+  treatment: string;
+  prescription: string;
+  labResult: string;
+  notes: string;
+  status: string;
+  attachments: string;
+  weight: string;
+  temperature: string;
+  heartRate: string;
+  respiratoryRate: string;
+};
+
+export function createMedicalRecordPayload(form: MedicalRecordFormState, editingId?: string | null): MedicalRecordPayload {
   return {
     id: editingId ?? undefined,
     appointmentId: form.appointmentId,
@@ -102,7 +123,7 @@ export function createMedicalRecordPayload(form: MedicalRecordFormState, editing
     notes: form.notes,
     status: form.status,
     attachments: form.attachments,
-  } as any;
+  };
 }
 
 export function useMedicalForm() {
@@ -119,7 +140,7 @@ export function useMedicalForm() {
   }
 
   function startEditing(record: Parameters<typeof buildMedicalRecordFormState>[0]) {
-    setEditingId(record.appointmentId ? record.appointmentId : null as any);
+    setEditingId(record.appointmentId ? record.appointmentId : null);
     setForm(buildMedicalRecordFormState(record));
   }
 

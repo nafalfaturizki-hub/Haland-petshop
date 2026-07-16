@@ -2,12 +2,14 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Invoice } from '@prisma/client';
 import { toast } from 'sonner';
 import { CheckCircle2, History, Printer, ShoppingBag, X } from 'lucide-react';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { createPosSaleWithRetry, listPosProducts, listProductCategories, validatePosSale } from '@/actions/pos';
 import { getInvoiceLookups } from '@/actions/invoice';
-import { calculatePosTotals, getPaymentSummary, roundCurrency, validatePosCheckout } from '@/lib/pos';
+import { calculatePosTotals, getPaymentSummary, roundCurrency } from '@/lib/pos';
+import { validateBeforeCheckout } from '@/lib/pos-validation';
 import { usePolling } from '@/hooks/use-polling';
 import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
 import { usePermissions } from '@/hooks/use-permissions';
@@ -58,7 +60,7 @@ export default function PosPage() {
   const [cartSheetOpen, setCartSheetOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [taxRate, setTaxRate] = useState('0');
-  const [createdInvoice, setCreatedInvoice] = useState<any | null>(null);
+  const [createdInvoice, setCreatedInvoice] = useState<Invoice | null>(null);
   const [receiptHtml, setReceiptHtml] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const checkoutTimeoutRef = useRef<number | null>(null);
@@ -232,10 +234,11 @@ export default function PosPage() {
       return;
     }
 
-    const validation = validatePosCheckout({
+    const validation = validateBeforeCheckout({
+      buyerMode,
       customerId,
       walkInName,
-      items: cart.map((item) => ({ qty: item.qty, price: item.price })),
+      items: cart.map((item) => ({ productId: item.productId, qty: item.qty, price: item.price })),
       discountType,
       discountAmount: discountValue,
       paymentMethod,
@@ -309,7 +312,7 @@ export default function PosPage() {
         return;
       }
 
-      setCreatedInvoice(result.invoice);
+      setCreatedInvoice(result.invoice ?? null);
       setReceiptHtml(result.receiptHtml ?? null);
       setCart([]);
       setDiscountAmount('0');
@@ -318,9 +321,9 @@ export default function PosPage() {
       setCheckoutError(null);
       toast.success(`Transaksi berhasil. ${result.changeAmount && result.changeAmount > 0 ? `Kembalian ${formatCurrency(result.changeAmount)}.` : 'Pembayaran lunas.'}`);
     } catch (error) {
-      console.error(error);
-      setCheckoutError('Terjadi kesalahan saat memproses transaksi. Silakan coba lagi.');
-      toast.error('Terjadi kesalahan saat memproses transaksi. Silakan coba lagi.');
+      const message = error instanceof Error ? error.message : 'Terjadi kesalahan saat memproses transaksi. Silakan coba lagi.';
+      setCheckoutError(message);
+      toast.error(message);
     } finally {
       if (checkoutTimeoutRef.current) {
         window.clearTimeout(checkoutTimeoutRef.current);
@@ -481,7 +484,7 @@ export default function PosPage() {
             </div>
             <div className="rounded-2xl bg-zinc-50 p-3 text-sm text-zinc-700">
               <p className="text-zinc-500">Pelanggan</p>
-              <p className="mt-2 font-semibold text-zinc-900">{createdInvoice.walkInName?.trim() || createdInvoice.customer.name}</p>
+              <p className="mt-2 font-semibold text-zinc-900">{createdInvoice.walkInName?.trim() || 'Pelanggan'}</p>
             </div>
             <div className="rounded-2xl bg-zinc-50 p-3 text-sm text-zinc-700">
               <p className="text-zinc-500">Total</p>

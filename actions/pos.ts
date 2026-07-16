@@ -2,13 +2,14 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import type { Prisma } from '@prisma/client';
 import { auth } from '@/lib/auth';
 import { prisma, getOrCreateGuestCustomer } from '@/lib/db';
 import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription, isStaffRole } from '@/lib/permissions';
 import { getAuthorizedRoutes } from '@/lib/permission-matrix';
 import { notifyUser } from '@/lib/notifications-helper';
 import { calculatePosTotals, getPaymentStatus, roundCurrency, validatePosCheckout } from '@/lib/pos';
-import { calculateFinalTotal, posCheckoutPayloadSchema, validateDiscount, validateStockAvailabilityForCheckout } from '@/lib/pos-validation';
+import { calculateFinalTotal, posCheckoutPayloadSchema, validateBeforeCheckout, validateDiscount, validateStockAvailabilityForCheckout } from '@/lib/pos-validation';
 import { getActorRole } from '@/lib/utils';
 import { generateInvoiceNumber } from '@/lib/numbering';
 import { deductProductStock, validateStockAvailability } from '@/lib/inventory-helpers';
@@ -69,7 +70,7 @@ export async function listPosProducts(input: z.infer<typeof listPosProductsSchem
   const categoryId = parsed.data.categoryId?.trim() || undefined;
   const shouldSearch = Boolean(normalizedQuery);
 
-  const whereClause: any = {
+  const whereClause: Prisma.ProductWhereInput = {
     isArchived: false,
     status: 'ACTIVE',
     ...(categoryId ? { categoryId } : {}),
@@ -127,7 +128,7 @@ export async function listProductCategories() {
 
   return {
     success: true,
-    categories: categories.map((category: any) => ({
+    categories: categories.map((category) => ({
       id: category.id,
       name: category.name,
       activeProductCount: category._count.products,
@@ -209,13 +210,29 @@ export async function validatePosSale(input: z.infer<typeof createPosSaleSchema>
     return { success: false as const, message: validation.message };
   }
 
-  const stockValidation = validateStockAvailabilityForCheckout(
-    parsed.data.items.map((item) => ({ qty: item.qty, productId: item.productId })),
-    Object.fromEntries((await prisma.product.findMany({ where: { id: { in: parsed.data.items.map((item) => item.productId) } }, select: { id: true, stock: true } })).map((product: any) => [product.id, product.stock])),
+  const stockByProductId = Object.fromEntries(
+    (await prisma.product.findMany({
+      where: { id: { in: parsed.data.items.map((item) => item.productId) } },
+      select: { id: true, stock: true },
+    })).map((product) => [product.id, product.stock]),
   );
 
-  if (!stockValidation.ok) {
-    return { success: false as const, message: stockValidation.message };
+  const checkoutValidation = validateBeforeCheckout({
+    buyerMode: parsed.data.customerId?.trim() ? 'REGISTERED' : 'MANUAL',
+    customerId: parsed.data.customerId ?? '',
+    walkInName: parsed.data.walkInName ?? '',
+    items: parsed.data.items.map((item) => ({ productId: item.productId, qty: item.qty, price: item.price })),
+    discountType: parsed.data.discountType,
+    discountAmount: parsed.data.discountAmount ?? 0,
+    paymentMethod: parsed.data.paymentMethod,
+    paymentAmount: parsed.data.paymentAmount,
+    subtotal,
+    taxRate: parsed.data.taxRate ?? 0,
+    stockByProductId,
+  });
+
+  if (!checkoutValidation.ok) {
+    return { success: false as const, message: checkoutValidation.message };
   }
 
   return {
@@ -230,7 +247,7 @@ export async function validatePosSale(input: z.infer<typeof createPosSaleSchema>
 
 export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) {
   const session = await auth();
-  const actorRole = getActorRole(session);
+  const _actorRole = getActorRole(session);
   const actorId = session?.user?.id;
 
   try {
@@ -242,9 +259,9 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
     const parsed = validation.parsedData;
     const hasManualBuyer = Boolean(parsed.walkInName?.trim());
     const hasSelectedCustomer = Boolean(parsed.customerId?.trim());
-    const subtotal = validation.subtotal;
-    const discountValue = parsed.discountAmount ?? 0;
-    const computedTotals = validation.totals;
+    const _subtotal = validation.subtotal;
+    const _discountValue = parsed.discountAmount ?? 0;
+    const _computedTotals = validation.totals;
 
     let resolvedCustomerId: string;
     if (hasManualBuyer && !hasSelectedCustomer) {
@@ -263,13 +280,13 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
     const productStockDeductionItems = items.map((item) => ({ productId: item.productId, qty: item.qty }));
 
     if (productStockDeductionItems.length > 0) {
-      const stockAvailability = await validateStockAvailability(prisma as any, productStockDeductionItems);
+      const stockAvailability = await validateStockAvailability(prisma, productStockDeductionItems);
       if (!stockAvailability.ok) {
         return { success: false, message: stockAvailability.message };
       }
     }
 
-    const invoiceResult = await prisma.$transaction(async (tx: any) => {
+    const invoiceResult = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const productLookups = await Promise.all(
         items.map((item) => tx.product.findUnique({ where: { id: item.productId } })),
       );
@@ -359,7 +376,7 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
           entity: 'Invoice',
           entityId: createdInvoice.id,
           description: `Penjualan POS ${invoiceNumber}`,
-        } as any,
+        },
       });
 
       return { invoice: createdInvoice, totals: transactionTotals };
@@ -387,8 +404,8 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
   }
 }
 
-export function generateReceiptHTML(input: { invoice: any; customerName: string }) {
-  const lines = (input.invoice.items ?? []).map((item: any) => `
+export function generateReceiptHTML(input: { invoice: { invoiceNumber: string; items?: Array<{ description: string; qty: number; price: number; subtotal: number }>; subtotal: number; discountAmount: number; taxAmount: number; totalAmount: number; status: string; date: Date | string }; customerName: string }) {
+  const lines = (input.invoice.items ?? []).map((item) => `
     <tr>
       <td>${item.description}</td>
       <td>${item.qty}</td>
@@ -419,8 +436,10 @@ export function generateReceiptHTML(input: { invoice: any; customerName: string 
   </html>`;
 }
 
+type PosSaleResult = Awaited<ReturnType<typeof createPosSale>>;
+
 export async function createPosSaleWithRetry(input: z.infer<typeof createPosSaleSchema>) {
-  let lastResult: { success: boolean; message?: string; invoice?: any; receiptHtml?: string; changeAmount?: number } | undefined;
+  let lastResult: PosSaleResult | undefined;
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const result = await createPosSale(input);
@@ -453,7 +472,7 @@ export async function getPosTransactionHistory(input: z.infer<typeof getPosTrans
 
   const page = parsed.data.page ?? 1;
   const pageSize = parsed.data.pageSize ?? 10;
-  const where: any = {
+  const where: Prisma.InvoiceWhereInput = {
     appointmentId: null,
     medicalRecordId: null,
   };
@@ -493,15 +512,15 @@ export async function getPosTransactionHistory(input: z.infer<typeof getPosTrans
     }),
   ]);
 
-  const cashierIds = [...new Set(invoices.map((invoice: any) => invoice.createdById).filter(Boolean) as string[])];
+  const cashierIds = [...new Set(invoices.map((invoice) => invoice.createdById).filter(Boolean) as string[])];
   const cashiers = cashierIds.length > 0 ? await prisma.user.findMany({
     where: { id: { in: cashierIds } },
     select: { id: true, name: true },
   }) : [];
-  const cashierMap = new Map(cashiers.map((cashier: any) => [cashier.id, cashier.name]));
+  const cashierMap = new Map(cashiers.map((cashier) => [cashier.id, cashier.name]));
 
-  const transactions = invoices.map((invoice: any) => {
-    const itemCount = invoice.items.reduce((sum: number, item: any) => sum + item.qty, 0);
+  const transactions = invoices.map((invoice) => {
+    const itemCount = invoice.items.reduce((sum: number, item) => sum + item.qty, 0);
     const paymentMethod = invoice.payments[0]?.method ?? 'NON_CASH';
 
     return {
@@ -514,7 +533,7 @@ export async function getPosTransactionHistory(input: z.infer<typeof getPosTrans
       totalAmount: invoice.totalAmount,
       status: invoice.status,
       paymentMethod,
-      paymentAmount: invoice.payments.reduce((sum: number, payment: any) => sum + payment.amount, 0),
+      paymentAmount: invoice.payments.reduce((sum: number, payment: { amount: number }) => sum + payment.amount, 0),
     };
   });
 
@@ -557,9 +576,9 @@ export async function getPosTransactionDetail(invoiceId: string) {
     invoice: {
       ...invoice,
       customerName: invoice.walkInName?.trim() || invoice.customer?.name || 'Pelanggan',
-      itemCount: invoice.items.reduce((sum: number, item: any) => sum + item.qty, 0),
+      itemCount: invoice.items.reduce((sum: number, item) => sum + item.qty, 0),
       paymentMethod: invoice.payments[0]?.method ?? 'NON_CASH',
-      paymentAmount: invoice.payments.reduce((sum: number, payment: any) => sum + payment.amount, 0),
+      paymentAmount: invoice.payments.reduce((sum: number, payment: { amount: number }) => sum + payment.amount, 0),
     },
   };
 }

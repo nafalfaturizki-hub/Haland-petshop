@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import type { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
@@ -240,7 +241,7 @@ export async function createMedicalRecord(input: z.infer<typeof medicalRecordSch
   }
 
   const recordNumber = await generateRecordNumber();
-  const record = await prisma.$transaction(async (tx: any) => {
+  const record = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const created = await tx.medicalRecord.create({
       data: {
         recordNumber,
@@ -334,7 +335,7 @@ export async function updateMedicalRecord(input: z.infer<typeof updateMedicalRec
     return { success: false, message: attachmentValidation.message };
   }
 
-  const record = await prisma.$transaction(async (tx: any) => {
+  const record = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const updated = await tx.medicalRecord.update({
       where: { id: parsed.data.id },
       data: {
@@ -415,7 +416,7 @@ export async function deleteMedicalRecord(id: string) {
     return { success: false, message: 'Anda hanya bisa menghapus rekam medis pasien yang Anda tangani.' };
   }
 
-  const deleted = await prisma.$transaction(async (tx: any) => {
+  const deleted = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const removed = await tx.medicalRecord.delete({ where: { id } });
     await tx.auditLog.create({
       data: {

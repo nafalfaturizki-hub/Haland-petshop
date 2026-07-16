@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Download, FileUp, Package, PencilLine, Archive, RotateCcw, MoreHorizontal, Trash2, CheckSquare } from 'lucide-react';
+import { Download, FileUp, Package, PencilLine, Archive, RotateCcw } from 'lucide-react';
 import { archiveProduct, createProduct, exportProductsToCsv, importProductsFromCsv, listProductCategories, listProducts, restoreProduct, updateProduct, listSuppliers, type ParsedProductRow } from '@/actions/product';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';

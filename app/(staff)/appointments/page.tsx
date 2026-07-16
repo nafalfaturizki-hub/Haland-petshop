@@ -41,7 +41,6 @@ export default function AppointmentsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ petId: '', customerId: '', doctorId: '', date: '', queueNumber: '', status: 'WAITING' as 'WAITING' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED' });
   const { canPerform } = usePermissions();
-  const canCreateAppointment = canPerform('appointments', 'create');
   const canUpdateAppointment = canPerform('appointments', 'update');
   const canCancelAppointment = canPerform('appointments', 'cancel');
 

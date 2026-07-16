@@ -21,6 +21,22 @@ export const posCheckoutPayloadSchema = z.object({
 
 export type PosCheckoutPayload = z.infer<typeof posCheckoutPayloadSchema>;
 
+export type CheckoutItem = { productId?: string; qty: number; price: number };
+
+export type CheckoutValidationInput = {
+  buyerMode?: 'REGISTERED' | 'MANUAL';
+  customerId: string;
+  walkInName: string;
+  items: CheckoutItem[];
+  discountType: 'PERCENTAGE' | 'FIXED';
+  discountAmount: number;
+  paymentMethod: 'CASH' | 'NON_CASH';
+  paymentAmount: number;
+  subtotal: number;
+  taxRate: number;
+  stockByProductId?: Record<string, number>;
+};
+
 function normalizeCurrency(value: number) {
   return Math.round(value * 100) / 100;
 }
@@ -75,4 +91,67 @@ export function validateStockAvailabilityForCheckout(
   }
 
   return { ok: true as const };
+}
+
+export function validateBeforeCheckout(input: CheckoutValidationInput) {
+  const normalizedItems = input.items.filter((item) => item.qty > 0);
+  const hasManualBuyer = Boolean(input.walkInName?.trim());
+  const hasSelectedCustomer = Boolean(input.customerId?.trim());
+
+  if (normalizedItems.length === 0) {
+    return { ok: false as const, message: 'Keranjang kosong.' };
+  }
+
+  if (input.buyerMode === 'REGISTERED' && !hasSelectedCustomer) {
+    return { ok: false as const, message: 'Pilih pelanggan terdaftar atau beralih ke input manual.' };
+  }
+
+  if (input.buyerMode === 'MANUAL' && !hasManualBuyer) {
+    return { ok: false as const, message: 'Isi nama pembeli manual.' };
+  }
+
+  if (!hasManualBuyer && !hasSelectedCustomer) {
+    return { ok: false as const, message: 'Pelanggan wajib dipilih atau isi nama pembeli manual.' };
+  }
+
+  const discountValidation = validateDiscount({
+    discountType: input.discountType,
+    discountAmount: input.discountAmount,
+    subtotal: input.subtotal,
+  });
+
+  if (!discountValidation.ok) {
+    return { ok: false as const, message: discountValidation.message };
+  }
+
+  if (input.paymentMethod === 'CASH') {
+    const totals = calculateFinalTotal({
+      subtotal: input.subtotal,
+      discountType: input.discountType,
+      discountAmount: input.discountAmount,
+      taxRate: input.taxRate,
+    });
+
+    if (input.paymentAmount < totals.totalAmount) {
+      return { ok: false as const, message: 'Jumlah pembayaran kurang dari total transaksi.' };
+    }
+  }
+
+  if (input.stockByProductId) {
+    const stockItems = normalizedItems.filter((item): item is CheckoutItem & { productId: string } => Boolean(item.productId));
+    const stockValidation = validateStockAvailabilityForCheckout(
+      stockItems.map((item) => ({ productId: item.productId, qty: item.qty })),
+      input.stockByProductId,
+    );
+
+    if (!stockValidation.ok) {
+      return stockValidation;
+    }
+  }
+
+  return { ok: true as const };
+}
+
+export function validatePosCheckout(input: CheckoutValidationInput) {
+  return validateBeforeCheckout(input);
 }
