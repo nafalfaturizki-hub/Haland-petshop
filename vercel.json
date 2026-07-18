@@ -6,5 +6,7 @@
     "NEXTAUTH_URL": "URL where NextAuth is running (production domain)"
   },
   "buildCommand": "npm run build",
-  "devCommand": "npm run dev"
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "postBuildCommand": "node scripts/post-deploy.mjs"
 }

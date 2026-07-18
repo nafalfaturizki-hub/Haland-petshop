@@ -31,19 +31,34 @@ const childEnv = {
 
 console.log('[Post-Deploy] Running database migrations...');
 
-const result = spawnSync('prisma', ['migrate', 'deploy', '--skip-generate'], {
+const migrationResult = spawnSync('prisma', ['migrate', 'deploy', '--skip-generate'], {
   cwd: process.cwd(),
   stdio: 'inherit',
   env: childEnv,
   shell: false,
 });
 
-if (result.status !== 0) {
-  console.error('[Post-Deploy] Migration failed with status:', result.status);
+if (migrationResult.status !== 0) {
+  console.error('[Post-Deploy] Migration failed with status:', migrationResult.status);
   console.error('[Post-Deploy] This may cause runtime errors if the schema is out of sync');
-  // Don't exit with error - allow deployment to complete
   process.exit(0);
 }
 
 console.log('[Post-Deploy] Migrations completed successfully');
+
+const shouldSeed = (process.env.SEED_ON_DEPLOY ?? 'true').toLowerCase() !== 'false';
+if (shouldSeed) {
+  console.log('[Post-Deploy] Running database seed...');
+  const seedResult = spawnSync('prisma', ['db', 'seed'], {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+    env: childEnv,
+    shell: false,
+  });
+
+  if (seedResult.status !== 0) {
+    console.warn('[Post-Deploy] Seed completed with warnings or failed; deployment continues.');
+  }
+}
+
 process.exit(0);

@@ -28,14 +28,6 @@ const activateUserSchema = z.object({
   id: z.string().min(1),
 });
 
-const resetPinSchema = z.object({
-  id: z.string().min(1),
-});
-
-const unlockUserSchema = z.object({
-  id: z.string().min(1),
-});
-
 function getCastedActorRole(session: Awaited<ReturnType<typeof auth>>) {
   return getActorRole(session) as Role | undefined;
 }
@@ -273,7 +265,7 @@ export async function activateUser(input: z.infer<typeof activateUserSchema>) {
   }
 }
 
-export async function resetPin(input: z.infer<typeof resetPinSchema>) {
+export async function resetPin(input: { id: string }) {
   const result = await resetPinInternal({ userId: input.id });
   if (result.success) {
     revalidatePath('/users');
@@ -281,7 +273,7 @@ export async function resetPin(input: z.infer<typeof resetPinSchema>) {
   return result;
 }
 
-export async function unlockUser(input: z.infer<typeof unlockUserSchema>) {
+export async function unlockUser(input: { id: string }) {
   const result = await unlockUserInternal({ userId: input.id });
   if (result.success) {
     revalidatePath('/users');

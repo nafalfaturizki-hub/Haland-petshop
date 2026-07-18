@@ -6,7 +6,7 @@ import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { MedicalRecordDetail } from '@/components/medical-records/MedicalRecordDetail';
 import { MedicalRecordForm } from '@/components/medical-records/MedicalRecordForm';
-import { buildStructuredItemsForForm, formatStructuredItemsForInput, parseStructuredItems, serializeStructuredItemsFromInput } from '@/lib/medical-record-utils';
+import { buildStructuredItemsForForm, serializeStructuredItemsFromInput } from '@/lib/medical-record-utils';
 import { buildMedicalRecordPrefillFromSearchParams } from '@/lib/route-prefill';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';

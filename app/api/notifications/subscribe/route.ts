@@ -28,11 +28,8 @@ export async function GET(request: Request) {
 
   // Create a custom response with streaming support
   const encoder = new TextEncoder();
-  let controller: ReadableStreamDefaultController<Uint8Array> | null = null;
-
   const stream = new ReadableStream({
     async start(ctrl) {
-      controller = ctrl;
 
       // Send initial connection message
       const message = `data: ${JSON.stringify({
@@ -57,8 +54,8 @@ export async function GET(request: Request) {
         try {
           const eventMessage = `data: ${JSON.stringify(data)}\n\n`;
           ctrl.enqueue(encoder.encode(eventMessage));
-        } catch (error) {
-          console.error('Failed to send notification to client:', error);
+        } catch {
+          console.error('Failed to send notification to client');
         }
       });
 
@@ -70,7 +67,7 @@ export async function GET(request: Request) {
             timestamp: new Date().toISOString(),
           })}\n\n`;
           ctrl.enqueue(encoder.encode(heartbeat));
-        } catch (error) {
+        } catch {
           clearInterval(heartbeatInterval);
           unsubscribe();
           ctrl.close();

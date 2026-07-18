@@ -2,7 +2,6 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
 import { auth } from '@/lib/auth';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { getAuthorizedRoutes } from '@/lib/permission-matrix';
@@ -44,13 +43,6 @@ const recordPaymentSchema = z.object({
 
 const cancelInvoiceSchema = z.object({ id: z.string().min(1) });
 
-type InvoiceTransactionClient = Prisma.TransactionClient;
-
-type InvoiceItemInput = z.infer<typeof invoiceItemSchema>;
-
-type InvoiceCreatePayload = z.infer<typeof createInvoiceSchema>;
-
-type InvoiceRecord = Awaited<ReturnType<typeof prisma.invoice.create>>;
 
 export async function getInvoiceLookups() {
   const session = await auth();
@@ -365,7 +357,7 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
   let lastError: Error | null = null;
   for (let retryAttempt = 0; retryAttempt < 3; retryAttempt += 1) {
     try {
-      invoice = await prisma.$transaction(async (tx: InvoiceTransactionClient) => {
+      invoice = await prisma.$transaction(async (tx) => {
         // Generate invoice number for each attempt to handle race condition
         const currentInvoiceNumber = retryAttempt === 0 ? invoiceNumber : await generateInvoiceNumber();
 
@@ -509,7 +501,7 @@ export async function recordInvoicePayment(input: z.infer<typeof recordPaymentSc
   }
 
   try {
-    const updatedInvoice = await prisma.$transaction(async (tx: InvoiceTransactionClient) => {
+    const updatedInvoice = await prisma.$transaction(async (tx) => {
       // ATOMIC: Check outstanding within transaction to prevent race condition
       // This prevents two simultaneous payments from both succeeding and causing overpayment
       const aggregate = await tx.payment.aggregate({
@@ -604,7 +596,7 @@ export async function cancelInvoice(input: z.infer<typeof cancelInvoiceSchema>) 
     .filter((item: { type: string; productId: string | null; qty: number }) => item.type === 'PRODUK' && item.productId)
     .map((item: { productId: string | null; qty: number }) => ({ productId: item.productId as string, qty: item.qty }));
 
-  const updatedInvoice = await prisma.$transaction(async (tx: InvoiceTransactionClient) => {
+  const updatedInvoice = await prisma.$transaction(async (tx) => {
     const updated = await tx.invoice.update({
       where: { id: parsed.data.id },
       data: { status: 'CANCELLED' },

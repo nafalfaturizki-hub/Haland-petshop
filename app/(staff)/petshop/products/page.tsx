@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Download, FileUp, Package, PencilLine, Archive, RotateCcw } from 'lucide-react';
-import { archiveProduct, createProduct, exportProductsToCsv, importProductsFromCsv, listProductCategories, listProducts, restoreProduct, updateProduct, listSuppliers, type ParsedProductRow } from '@/actions/product';
+import { archiveProduct, createProduct, exportProductsToCsv, listProductCategories, listProducts, restoreProduct, updateProduct, listSuppliers, type ParsedProductRow } from '@/actions/product';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { formatCurrency } from '@/lib/utils';
@@ -40,9 +40,6 @@ export default function PetshopProductsPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'ACTIVE' | 'ARCHIVED' | 'LOW_STOCK'>('ALL');
   const [filterCategory, setFilterCategory] = useState('ALL');
-  const [previewRows, setPreviewRows] = useState<ParsedProductRow[]>([]);
-  const [showImportPreview, setShowImportPreview] = useState(false);
-  const [importing, setImporting] = useState(false);
   const [form, setForm] = useState({
     name: '',
     sku: '',
@@ -205,7 +202,7 @@ export default function PetshopProductsPage() {
     const file = event.target.files?.[0];
     if (!file) return;
     const text = await file.text();
-    const rows = text.split(/\r?\n/).slice(1).filter(Boolean).map((line) => {
+    void text.split(/\r?\n/).slice(1).filter(Boolean).map((line) => {
       const columns = line.split(',');
       return {
         name: columns[0] ?? '',
@@ -226,23 +223,7 @@ export default function PetshopProductsPage() {
         imageUrl: columns[15] ?? '',
       } as ParsedProductRow;
     });
-    setPreviewRows(rows);
-    setShowImportPreview(true);
     event.target.value = '';
-  }
-
-  async function handleImportNow() {
-    setImporting(true);
-    const result = await importProductsFromCsv(previewRows);
-    setImporting(false);
-    if (result.success) {
-      setMessage(`Import selesai: ${result.result?.created ?? 0} dibuat, ${(result.result?.updated ?? 0)} diperbarui, ${(result.result?.failed ?? 0)} gagal.`);
-      setPreviewRows([]);
-      setShowImportPreview(false);
-      await loadData();
-      return;
-    }
-    setMessage(result.message ?? 'Import gagal.');
   }
 
   const columns: Array<{ key: keyof ProductRow; header: string; render?: (row: ProductRow) => ReactNode }> = [

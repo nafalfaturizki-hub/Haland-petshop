@@ -5,14 +5,13 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { auth } from '@/lib/auth';
 import { prisma, getOrCreateGuestCustomer } from '@/lib/db';
-import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription, isStaffRole } from '@/lib/permissions';
+import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription } from '@/lib/permissions';
 import { getAuthorizedRoutes } from '@/lib/permission-matrix';
-import { notifyUser } from '@/lib/notifications-helper';
-import { calculatePosTotals, getPaymentStatus, roundCurrency, validatePosCheckout } from '@/lib/pos';
-import { calculateFinalTotal, posCheckoutPayloadSchema, validateBeforeCheckout, validateDiscount, validateStockAvailabilityForCheckout } from '@/lib/pos-validation';
+import { getPaymentStatus, roundCurrency, validatePosCheckout } from '@/lib/pos';
+import { calculateFinalTotal, posCheckoutPayloadSchema, validateBeforeCheckout, validateDiscount } from '@/lib/pos-validation';
 import { getActorRole } from '@/lib/utils';
 import { generateInvoiceNumber } from '@/lib/numbering';
-import { deductProductStock, validateStockAvailability } from '@/lib/inventory-helpers';
+import { notifyUser } from '@/lib/notifications-helper';
 import { generateReceiptHTML } from '@/lib/receipt-utils';
 
 const POS_RETRY_DELAYS_MS = [1000, 2000, 4000];
@@ -255,7 +254,6 @@ export async function validatePosSale(input: z.infer<typeof createPosSaleSchema>
 
 export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) {
   const session = await auth();
-  const actorRole = getActorRole(session);
   const actorId = session?.user?.id;
 
   try {
@@ -282,7 +280,6 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
 
     const items = parsed.items;
     const invoiceNumber = await generateInvoiceNumber();
-    const productStockDeductionItems = items.map((item) => ({ productId: item.productId, qty: item.qty }));
 
     const invoiceResult = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const productLookups = await Promise.all(
