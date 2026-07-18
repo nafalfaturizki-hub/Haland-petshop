@@ -29,21 +29,7 @@ Buka: http://localhost:3000
 
 ### 3. Explore App
 - Dashboard, Customers, Pets, Appointments, Pet Hotel, Inventory, Billing
-
----
-
-## 📖 Documentation
-
-| Document | Purpose | Read Time |
-|----------|---------|-----------|
-| **[QUICK_START.md](./QUICK_START.md)** | ⭐ Start here - Quick setup | 5 min |
-| **[SETUP.md](./SETUP.md)** | Complete setup guide & troubleshooting | 15 min |
-| **[DATABASE.md](./DATABASE.md)** | Database schema, operations, backup | 20 min |
-| **[DEPLOYMENT.md](./DEPLOYMENT.md)** | Deploy to Vercel, production setup | 15 min |
-| **[SETUP_COMPLETE.md](./SETUP_COMPLETE.md)** | Status report & checklist | 10 min |
-
-**👉 Start with [QUICK_START.md](./QUICK_START.md)**
-
+- 
 ---
 
 ## 🛠️ Tech Stack
@@ -189,9 +175,6 @@ git push origin main
 
 # 4. Auto-deploy on push (or manual deploy)
 ```
-
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete guide.
-
 ---
 
 ## 🔧 Configuration
@@ -277,19 +260,6 @@ npm run prisma:generate
 rm -rf node_modules
 npm install
 ```
-
-See [SETUP.md](./SETUP.md) for more troubleshooting.
-
----
-
-## 📞 Support
-
-1. Check [QUICK_START.md](./QUICK_START.md) for basic setup
-2. Read [SETUP.md](./SETUP.md) for detailed guide
-3. See [DATABASE.md](./DATABASE.md) for database questions
-4. Review [DEPLOYMENT.md](./DEPLOYMENT.md) for production issues
-5. Check terminal logs and Vercel dashboard
-
 ---
 
 ## 📝 Development Workflow
@@ -336,16 +306,3 @@ Private - Haland Pet Care
 HaLand PetCare Team
 
 ---
-
-## 🎉 Getting Started
-
-1. **New to this project?** → Read [QUICK_START.md](./QUICK_START.md)
-2. **Need full setup?** → Read [SETUP.md](./SETUP.md)
-3. **Ready to deploy?** → Read [DEPLOYMENT.md](./DEPLOYMENT.md)
-4. **Database questions?** → Read [DATABASE.md](./DATABASE.md)
-
----
-
-**Last Updated**: July 3, 2026
-**Version**: 0.1.0
-**Status**: ✅ Production Ready
