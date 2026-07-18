@@ -7,12 +7,14 @@ const DEFAULT_LOCAL_DATABASE_URL = 'postgresql://halandpet_user:halandpet_passwo
 export function resolvePrismaEnvironment(env = process.env) {
   const databaseUrl = env.DATABASE_URL?.trim();
   const directUrl = env.DIRECT_URL?.trim();
+  const unpooledUrl = env.DATABASE_URL_UNPOOLED?.trim() || env.POSTGRES_URL_NON_POOLING?.trim();
   const resolvedDatabaseUrl = databaseUrl || DEFAULT_LOCAL_DATABASE_URL;
 
   return {
     ...env,
     DATABASE_URL: resolvedDatabaseUrl,
-    DIRECT_URL: directUrl || resolvedDatabaseUrl,
+    // Use provided DIRECT_URL, fall back to unpooled URL, then to DATABASE_URL
+    DIRECT_URL: directUrl || unpooledUrl || resolvedDatabaseUrl,
   };
 }
 
@@ -88,7 +90,6 @@ function runBuildSteps() {
 
   const commands = [
     ['prisma', ['generate']],
-    ['prisma', ['migrate', 'deploy']],
     ['next', ['build']],
   ];
 
@@ -102,6 +103,21 @@ function runBuildSteps() {
 
     if (result.status !== 0) {
       process.exit(result.status ?? 1);
+    }
+  }
+
+  // Optionally run migrations if not in CI/Vercel build
+  if (!process.env.SKIP_MIGRATIONS && !process.env.VERCEL) {
+    console.log('[Build] Running database migrations...');
+    const migrateResult = spawnSync('prisma', ['migrate', 'deploy'], {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+      env: childEnv,
+      shell: false,
+    });
+    // Don't fail the build if migrations fail - they can be run separately
+    if (migrateResult.status !== 0) {
+      console.warn('[Build] Migrations failed - may need to run manually on deployment');
     }
   }
 }

@@ -292,9 +292,24 @@ export async function createBackup() {
       auditLogs,
     };
     const content = JSON.stringify(payload, null, 2);
+    
+    // Validate backup content - ensure it's not empty and can be parsed back
+    const MAX_BACKUP_SIZE = 10 * 1024 * 1024; // 10MB max
+    if (content.length === 0 || content.length > MAX_BACKUP_SIZE) {
+      return { success: false, message: `Ukuran backup tidak valid. Maksimal ${MAX_BACKUP_SIZE / 1024 / 1024}MB.`, data: null };
+    }
+
+    // Validate backup integrity by parsing it back
+    try {
+      const verified = JSON.parse(content);
+      backupPayloadSchema.parse(verified);
+    } catch {
+      return { success: false, message: 'Backup tidak valid. Integritas data gagal diverifikasi.', data: null };
+    }
+
     const fileName = `haland-backup-${timestamp.slice(0, 10)}-${Date.now()}.json`;
 
-    await createAuditEntry(userId, 'BACKUP_CREATE', 'Settings', 'Membuat backup konfigurasi sistem.', null);
+    await createAuditEntry(userId, 'BACKUP_CREATE', 'Settings', `Membuat backup konfigurasi sistem (${(content.length / 1024).toFixed(2)}KB).`, null);
 
     return {
       success: true,
@@ -325,28 +340,38 @@ export async function restoreBackup(input: z.infer<typeof restoreBackupSchema>) 
     return { success: false, message: 'Hanya Owner yang dapat melakukan restore.', data: null };
   }
 
+  // Pre-validation: Check content size
+  const MAX_BACKUP_SIZE = 10 * 1024 * 1024; // 10MB max
+  if (parsed.data.content.length > MAX_BACKUP_SIZE) {
+    return { success: false, message: `File backup terlalu besar. Maksimal ${MAX_BACKUP_SIZE / 1024 / 1024}MB.`, data: null };
+  }
+
   let payload: unknown;
 
   try {
     payload = JSON.parse(parsed.data.content);
   } catch {
-    return { success: false, message: 'Format file backup tidak valid.', data: null };
+    return { success: false, message: 'Format file backup tidak valid. Pastikan file JSON well-formed.', data: null };
   }
 
   const backupResult = backupPayloadSchema.safeParse(payload);
   if (!backupResult.success) {
-    return { success: false, message: 'Backup tidak berisi data pengaturan yang valid.', data: null };
+    return { 
+      success: false, 
+      message: `Backup tidak berisi data pengaturan yang valid. ${backupResult.error.errors[0]?.message ?? ''}`, 
+      data: null 
+    };
   }
 
   const backupData = backupResult.data;
 
   try {
-    await prisma.$transaction(async (tx) => {
-      const incomingSettings = backupData.settings;
-      await tx.settings.upsert({
-        where: { id: incomingSettings.id ?? 'default-settings' },
-        create: {
-          id: incomingSettings.id ?? 'default-settings',
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const incomingSettings = backupData.settings;
+        
+        // Pre-check: Validate all settings fields before restore
+        const settingsData = {
           clinicName: normalizeString(incomingSettings.clinicName),
           logo: normalizeString(incomingSettings.logo),
           address: normalizeString(incomingSettings.address),
@@ -382,75 +407,70 @@ export async function restoreBackup(input: z.infer<typeof restoreBackupSchema>) 
           receiptPrefix: normalizeString(incomingSettings.receiptPrefix),
           autoNumbering: normalizeBoolean(incomingSettings.autoNumbering),
           theme: normalizeString(incomingSettings.theme),
-        },
-        update: {
-          clinicName: normalizeString(incomingSettings.clinicName),
-          logo: normalizeString(incomingSettings.logo),
-          address: normalizeString(incomingSettings.address),
-          phone: normalizeString(incomingSettings.phone),
-          email: normalizeString(incomingSettings.email),
-          website: normalizeString(incomingSettings.website),
-          taxNumber: normalizeString(incomingSettings.taxNumber),
-          operationalHours: normalizeString(incomingSettings.operationalHours),
-          timezone: normalizeString(incomingSettings.timezone),
-          currency: normalizeString(incomingSettings.currency),
-          language: normalizeString(incomingSettings.language),
-          footerInfo: normalizeString(incomingSettings.footerInfo),
-          receiptHeader: normalizeString(incomingSettings.receiptHeader),
-          receiptFooter: normalizeString(incomingSettings.receiptFooter),
-          appName: normalizeString(incomingSettings.appName),
-          appVersion: normalizeString(incomingSettings.appVersion),
-          dateFormat: normalizeString(incomingSettings.dateFormat),
-          timeFormat: normalizeString(incomingSettings.timeFormat),
-          numberFormat: normalizeString(incomingSettings.numberFormat),
-          pagination: normalizeNumber(incomingSettings.pagination),
-          sessionTimeout: normalizeNumber(incomingSettings.sessionTimeout),
-          autoLogout: normalizeBoolean(incomingSettings.autoLogout),
-          defaultDashboard: normalizeString(incomingSettings.defaultDashboard),
-          appointmentDuration: normalizeNumber(incomingSettings.appointmentDuration),
-          workingDays: normalizeString(incomingSettings.workingDays),
-          holidayRules: normalizeString(incomingSettings.holidayRules),
-          invoicePrefix: normalizeString(incomingSettings.invoicePrefix),
-          medicalRecordPrefix: normalizeString(incomingSettings.medicalRecordPrefix),
-          customerPrefix: normalizeString(incomingSettings.customerPrefix),
-          petPrefix: normalizeString(incomingSettings.petPrefix),
-          posPrefix: normalizeString(incomingSettings.posPrefix),
-          bookingPrefix: normalizeString(incomingSettings.bookingPrefix),
-          receiptPrefix: normalizeString(incomingSettings.receiptPrefix),
-          autoNumbering: normalizeBoolean(incomingSettings.autoNumbering),
-          theme: normalizeString(incomingSettings.theme),
-        },
-      });
+        };
 
-      if (Array.isArray(backupData.auditLogs)) {
-        for (const record of backupData.auditLogs.slice(0, 100)) {
-          await tx.auditLog.create({
-            data: {
-              userId,
-              action: record.action ?? 'RESTORE_BACKUP_ITEM',
-              entity: record.entity ?? 'Settings',
-              entityId: record.entityId ?? null,
-              description: record.description ?? null,
-              date: record.date ? new Date(record.date) : undefined,
-            },
-          });
+        const settingsResult = await tx.settings.upsert({
+          where: { id: incomingSettings.id ?? 'default-settings' },
+          create: {
+            id: incomingSettings.id ?? 'default-settings',
+            ...settingsData,
+          },
+          update: settingsData,
+        });
+
+        let auditLogsRestored = 0;
+        if (Array.isArray(backupData.auditLogs)) {
+          for (const record of backupData.auditLogs.slice(0, 100)) {
+            await tx.auditLog.create({
+              data: {
+                userId,
+                action: record.action ?? 'RESTORE_BACKUP_ITEM',
+                entity: record.entity ?? 'Settings',
+                entityId: record.entityId ?? null,
+                description: record.description ?? null,
+                date: record.date ? new Date(record.date) : undefined,
+              },
+            });
+            auditLogsRestored++;
+          }
         }
-      }
 
-      await tx.auditLog.create({
-        data: {
-          userId,
-          action: 'RESTORE_BACKUP',
-          entity: 'Settings',
-          description: 'Melakukan restore backup manual.',
-        },
-      });
-    });
+        await tx.auditLog.create({
+          data: {
+            userId,
+            action: 'RESTORE_BACKUP',
+            entity: 'Settings',
+            description: `Melakukan restore backup manual. ${auditLogsRestored} audit log dipulihkan.`,
+          },
+        });
+
+        return { settingsId: settingsResult.id, auditLogsRestored };
+      },
+      {
+        isolationLevel: 'Serializable', // Ensure strict transaction isolation
+        timeout: 30000, // 30 second timeout for restore operation
+      }
+    );
 
     revalidatePath('/settings');
-    return { success: true, message: 'Restore backup selesai.', data: { restored: true } };
+    return { 
+      success: true, 
+      message: `Restore backup selesai. ${result.auditLogsRestored} audit log dipulihkan.`, 
+      data: { restored: true, auditLogsRestored: result.auditLogsRestored } 
+    };
   } catch (error) {
     console.error('Failed to restore backup', error);
-    return { success: false, message: 'Restore backup gagal.', data: null };
+    
+    // Specific error messages for different failure scenarios
+    if (error instanceof Error) {
+      if (error.message.includes('Unique constraint failed')) {
+        return { success: false, message: 'Konflik data: Pengaturan dengan ID ini sudah ada. Restore dibatalkan.', data: null };
+      }
+      if (error.message.includes('timeout')) {
+        return { success: false, message: 'Restore backup timeout. Coba lagi dengan file yang lebih kecil.', data: null };
+      }
+    }
+    
+    return { success: false, message: 'Restore backup gagal. Sistem kembali ke state sebelumnya (transaksi dibatalkan).', data: null };
   }
 }

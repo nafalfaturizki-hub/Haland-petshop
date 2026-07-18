@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma, createAuditLog } from '@/lib/db';
 import { getActorId } from '@/lib/utils';
+import { broadcastNotification, broadcastUnreadCount } from '@/lib/notification-broadcaster';
 
 const markReadSchema = z.object({
   id: z.string().min(1),
@@ -69,6 +70,12 @@ export async function markNotificationRead(input: z.infer<typeof markReadSchema>
 
   await createAuditLog(actorId, 'MARK_READ', 'Notification', parsed.data.id, 'Notifikasi ditandai dibaca oleh pengguna.');
 
+  // Broadcast updated unread count
+  const unreadCount = await prisma.notification.count({
+    where: { userId: actorId, isRead: false },
+  });
+  broadcastUnreadCount(actorId, unreadCount);
+
   return {
     success: true,
     message: 'Notifikasi ditandai sebagai dibaca.',
@@ -91,6 +98,9 @@ export async function markAllNotificationsRead() {
 
   if (result.count > 0) {
     await createAuditLog(actorId, 'MARK_ALL_READ', 'Notification', null, 'Semua notifikasi ditandai dibaca.');
+    
+    // Broadcast updated unread count (should be 0)
+    broadcastUnreadCount(actorId, 0);
   }
 
   return {
@@ -164,6 +174,22 @@ export async function createNotification(input: z.infer<typeof createNotificatio
   });
 
   await createAuditLog(actorId, 'CREATE', 'Notification', notification.id, `Notifikasi dibuat untuk ${targetUser.name}.`);
+
+  // Broadcast notification to connected SSE clients in real-time
+  broadcastNotification(parsed.data.userId, {
+    id: notification.id,
+    title: notification.title,
+    message: notification.message,
+    type: notification.type,
+    isRead: notification.isRead,
+    date: notification.date,
+  });
+
+  // Broadcast updated unread count
+  const unreadCount = await prisma.notification.count({
+    where: { userId: parsed.data.userId, isRead: false },
+  });
+  broadcastUnreadCount(parsed.data.userId, unreadCount);
 
   return {
     success: true,
