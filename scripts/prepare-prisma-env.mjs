@@ -3,14 +3,13 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const DEFAULT_LOCAL_DATABASE_URL = 'postgresql://halandpet_user:halandpet_password@127.0.0.1:5432/halandpet_test?sslmode=disable';
-const DEFAULT_LOCAL_DIRECT_URL = 'postgresql://halandpet_user:halandpet_password@127.0.0.1:5432/halandpet_test?sslmode=disable';
 
 export function resolvePrismaEnvironment(env = process.env) {
   const databaseUrl = env.DATABASE_URL?.trim();
   const directUrl = env.DIRECT_URL?.trim();
   const unpooledUrl = env.DATABASE_URL_UNPOOLED?.trim() || env.POSTGRES_URL_NON_POOLING?.trim();
-  const resolvedDatabaseUrl = databaseUrl || DEFAULT_LOCAL_DATABASE_URL;
-  const resolvedDirectUrl = directUrl || unpooledUrl || process.env.DIRECT_URL || DEFAULT_LOCAL_DIRECT_URL;
+  const resolvedDatabaseUrl = databaseUrl || unpooledUrl || DEFAULT_LOCAL_DATABASE_URL;
+  const resolvedDirectUrl = directUrl || resolvedDatabaseUrl;
 
   return {
     ...env,
@@ -59,20 +58,18 @@ function writeRuntimeEnvFile(env) {
   const envFilePath = path.resolve(process.cwd(), '.env.local');
   const lines = [];
   const databaseUrl = env.DATABASE_URL?.trim();
-  const directUrl = env.DIRECT_URL?.trim();
-  const nextAuthSecret = (process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET ?? '').trim();
-  const nextAuthUrl = (process.env.NEXTAUTH_URL ?? process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '').trim();
+  const nextAuthSecret = (process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? '').trim();
+  const nextAuthUrl = (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')).trim();
 
   if (databaseUrl) {
     lines.push(`DATABASE_URL=${databaseUrl}`);
   }
-  if (directUrl) {
-    lines.push(`DIRECT_URL=${directUrl}`);
-  }
   if (nextAuthSecret) {
+    lines.push(`AUTH_SECRET=${nextAuthSecret}`);
     lines.push(`NEXTAUTH_SECRET=${nextAuthSecret}`);
   }
   if (nextAuthUrl) {
+    lines.push(`AUTH_URL=${nextAuthUrl}`);
     lines.push(`NEXTAUTH_URL=${nextAuthUrl}`);
   }
 
@@ -92,6 +89,7 @@ function runBuildSteps() {
 
   const commands = [
     ['prisma', ['generate']],
+    ['prisma', ['migrate', 'deploy']],
     ['next', ['build']],
   ];
 

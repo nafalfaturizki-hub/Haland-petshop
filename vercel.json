@@ -1,10 +1,4 @@
 {
-  "env": {
-    "DATABASE_URL": "PostgreSQL connection URL with pooling (from Neon)",
-    "DIRECT_URL": "PostgreSQL direct connection URL without pooling (for migrations)",
-    "NEXTAUTH_SECRET": "Secret key for NextAuth JWT encryption (min 32 characters)",
-    "NEXTAUTH_URL": "URL where NextAuth is running (production domain)"
-  },
   "buildCommand": "npm run build",
   "devCommand": "npm run dev",
   "installCommand": "npm install",

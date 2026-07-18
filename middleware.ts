@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { canPerform } from '@/lib/permission-matrix';
+import { getAuthSecret } from '@/lib/auth-env';
 
 const loginRateLimitWindowMs = 15 * 60 * 1000;
 const loginRateLimitMaxAttempts = 5;
@@ -107,11 +108,13 @@ export async function proxy(request: NextRequest) {
 
   const token = await getToken({
     req: request,
-    secret: process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET ?? undefined,
+    secret: getAuthSecret(),
+    secureCookie: process.env.NODE_ENV === 'production',
   });
 
   const role = typeof token?.role === 'string' ? token.role : undefined;
-  const isAuthenticated = Boolean(token?.sub);
+  const userId = typeof token?.sub === 'string' && token.sub ? token.sub : (typeof token?.id === 'string' ? token.id : undefined);
+  const isAuthenticated = Boolean(userId);
 
   if (pathname === '/') {
     return NextResponse.next();

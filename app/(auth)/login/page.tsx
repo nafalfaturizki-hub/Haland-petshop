@@ -36,6 +36,7 @@ export default function LoginPage() {
         const activeSession = await getSession();
         const role = (activeSession?.user as { role?: string } | undefined)?.role;
         const mustChangePin = Boolean((activeSession?.user as { mustChangePin?: boolean } | undefined)?.mustChangePin);
+        router.refresh();
         router.replace(mustChangePin ? '/change-pin' : role === 'CUSTOMER' ? '/portal' : '/dashboard');
         return;
       }

@@ -4,6 +4,7 @@ import Credentials from 'next-auth/providers/credentials';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma, createAuditLog } from './db';
+import { getAuthSecret } from './auth-env';
 
 declare module 'next-auth' {
   interface Session {
@@ -31,20 +32,7 @@ const loginSchema = z.object({
   pin: z.string().trim().regex(/^\d{6}$/, 'PIN harus 6 digit.'),
 });
 
-function getNextAuthSecret() {
-  const envSecret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
-  if (envSecret) {
-    return envSecret;
-  }
-
-  if (process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production') {
-    return undefined;
-  }
-
-  return 'next-auth-dev-secret';
-}
-
-const nextAuthSecret = getNextAuthSecret();
+const nextAuthSecret = getAuthSecret();
 
 async function getFreshUser(userId: string) {
   return prisma.user.findUnique({
@@ -225,6 +213,7 @@ export const authOptions: NextAuthOptions = {
   pages: {
     signIn: '/login',
   },
+  debug: process.env.NODE_ENV !== 'production',
   events: {
     async signIn(message) {
       const userId = (message.user as { id?: string } | undefined)?.id ?? (message.user as { email?: string } | undefined)?.email;
@@ -241,15 +230,24 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: {
     async jwt({ token, user }) {
+      const userId = typeof user?.id === 'string' ? user.id : (typeof token?.id === 'string' ? token.id : undefined);
+
+      if (userId) {
+        token.sub = userId;
+        token.id = userId;
+      } else if (!token.sub && typeof token.id === 'string') {
+        token.sub = token.id;
+      }
+
       if (user) {
-        token.id = user.id as string;
         token.role = (user as { role?: string }).role as string;
         token.username = (user as { username?: string }).username as string;
         token.mustChangePin = Boolean((user as { mustChangePin?: boolean }).mustChangePin);
       }
 
-      if (token.id && !token.revoked) {
-        const freshUser = await getFreshUser(token.id as string);
+      const resolvedUserId = typeof token.sub === 'string' && token.sub ? token.sub : (typeof token.id === 'string' ? token.id : undefined);
+      if (resolvedUserId && !token.revoked) {
+        const freshUser = await getFreshUser(resolvedUserId);
         if (!freshUser || !freshUser.isActive || freshUser.isLocked) {
           token.revoked = true;
           return token;
@@ -264,7 +262,8 @@ export const authOptions: NextAuthOptions = {
     },
     async session({ session, token }) {
       if (session.user && !token.revoked) {
-        (session.user as { id?: string; role?: string; username?: string; mustChangePin?: boolean }).id = token.id as string;
+        const userId = typeof token.sub === 'string' && token.sub ? token.sub : (typeof token.id === 'string' ? token.id : undefined);
+        (session.user as { id?: string; role?: string; username?: string; mustChangePin?: boolean }).id = userId;
         (session.user as { id?: string; role?: string; username?: string; mustChangePin?: boolean }).role = token.role as string;
         (session.user as { id?: string; role?: string; username?: string; mustChangePin?: boolean }).username = token.username as string;
         (session.user as { id?: string; role?: string; username?: string; mustChangePin?: boolean }).mustChangePin = Boolean(token.mustChangePin);
