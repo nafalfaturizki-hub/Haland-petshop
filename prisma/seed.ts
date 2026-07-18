@@ -1,15 +1,34 @@
-const bcrypt = require('bcryptjs');
-const { PrismaClient } = require('@prisma/client');
+import bcrypt from 'bcryptjs';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
+
+function getDefaultPin(): string | null {
+  const explicitPin = process.env.INITIAL_OWNER_PIN?.trim() || process.env.DEFAULT_PIN?.trim();
+  if (explicitPin) {
+    return explicitPin;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return null;
+  }
+
+  return '123456';
+}
 
 async function main() {
   console.log('🌱 Seeding database...');
 
-  const defaultPin = '123456';
+  const defaultPin = getDefaultPin();
+  if (!defaultPin && process.env.NODE_ENV === 'production') {
+    console.log('⚠️  Production deployment detected; skipping default seed credentials. Set INITIAL_OWNER_PIN to opt into seed users.');
+    return;
+  }
+
+  const resolvedPin = defaultPin ?? '123456';
 
   // Create default owner user
-  const ownerPinHash = await bcrypt.hash(defaultPin, 10);
+  const ownerPinHash = await bcrypt.hash(resolvedPin, 10);
   
   const owner = await prisma.user.upsert({
     where: { username: 'owner' },
@@ -27,7 +46,7 @@ async function main() {
   console.log('✅ Owner user created:', owner.username);
 
   // Create admin user
-  const adminPinHash = await bcrypt.hash(defaultPin, 10);
+  const adminPinHash = await bcrypt.hash(resolvedPin, 10);
   
   const admin = await prisma.user.upsert({
     where: { username: 'admin' },
@@ -46,7 +65,7 @@ async function main() {
   console.log('✅ Admin user created:', admin.username);
 
   // Create sample doctor
-  const doctorPinHash = await bcrypt.hash(defaultPin, 10);
+  const doctorPinHash = await bcrypt.hash(resolvedPin, 10);
   
   const doctor = await prisma.user.upsert({
     where: { username: 'dr_budi' },
@@ -65,7 +84,7 @@ async function main() {
   console.log('✅ Doctor user created:', doctor.username);
 
   // Create a sample customer user for portal access
-  const customerUserPinHash = await bcrypt.hash(defaultPin, 10);
+  const customerUserPinHash = await bcrypt.hash(resolvedPin, 10);
   const customerUser = await prisma.user.upsert({
     where: { username: 'customer' },
     update: {},

@@ -19,3 +19,13 @@ test('resolvePrismaEnvironment preserves an explicit DIRECT_URL', () => {
 
   assert.equal(env.DIRECT_URL, 'postgresql://direct:pass@localhost:5432/haland');
 });
+
+test('resolvePrismaEnvironment supports Vercel and Neon alias variables', () => {
+  const env = resolvePrismaEnvironment({
+    POSTGRES_PRISMA_URL: 'postgresql://prisma:pass@localhost:5432/haland',
+    POSTGRES_URL_NON_POOLING: 'postgresql://direct:pass@localhost:5432/haland',
+  });
+
+  assert.equal(env.DATABASE_URL, 'postgresql://prisma:pass@localhost:5432/haland');
+  assert.equal(env.DIRECT_URL, 'postgresql://direct:pass@localhost:5432/haland');
+});

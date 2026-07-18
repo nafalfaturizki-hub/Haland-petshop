@@ -7,9 +7,10 @@ const DEFAULT_LOCAL_DATABASE_URL = 'postgresql://halandpet_user:halandpet_passwo
 export function resolvePrismaEnvironment(env = process.env) {
   const databaseUrl = env.DATABASE_URL?.trim();
   const directUrl = env.DIRECT_URL?.trim();
-  const unpooledUrl = env.DATABASE_URL_UNPOOLED?.trim() || env.POSTGRES_URL_NON_POOLING?.trim();
-  const resolvedDatabaseUrl = databaseUrl || unpooledUrl || DEFAULT_LOCAL_DATABASE_URL;
-  const resolvedDirectUrl = directUrl || resolvedDatabaseUrl;
+  const pooledAlias = env.POSTGRES_PRISMA_URL?.trim() || env.POSTGRES_URL?.trim() || env.DATABASE_URL_POOLING?.trim();
+  const unpooledAlias = env.DATABASE_URL_UNPOOLED?.trim() || env.POSTGRES_URL_NON_POOLING?.trim() || env.POSTGRES_URL_NO_SSL?.trim();
+  const resolvedDatabaseUrl = databaseUrl || pooledAlias || unpooledAlias || DEFAULT_LOCAL_DATABASE_URL;
+  const resolvedDirectUrl = directUrl || unpooledAlias || resolvedDatabaseUrl;
 
   return {
     ...env,
@@ -87,27 +88,29 @@ function runBuildSteps() {
     ...env,
   };
 
-  const commands = [
-    ['prisma', ['generate']],
-    ['prisma', ['migrate', 'deploy']],
-    ['next', ['build']],
-  ];
+  const generateResult = spawnSync('prisma', ['generate'], {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+    env: childEnv,
+    shell: false,
+  });
 
-  for (const [command, args] of commands) {
-    const result = spawnSync(command, args, {
-      cwd: process.cwd(),
-      stdio: 'inherit',
-      env: childEnv,
-      shell: false,
-    });
-
-    if (result.status !== 0) {
-      process.exit(result.status ?? 1);
-    }
+  if (generateResult.status !== 0) {
+    process.exit(generateResult.status ?? 1);
   }
 
-  // Optionally run migrations if not in CI/Vercel build
-  if (!process.env.SKIP_MIGRATIONS && !process.env.VERCEL) {
+  const buildResult = spawnSync('next', ['build'], {
+    cwd: process.cwd(),
+    stdio: 'inherit',
+    env: childEnv,
+    shell: false,
+  });
+
+  if (buildResult.status !== 0) {
+    process.exit(buildResult.status ?? 1);
+  }
+
+  if (!process.env.SKIP_MIGRATIONS && !process.env.VERCEL && childEnv.DATABASE_URL) {
     console.log('[Build] Running database migrations...');
     const migrateResult = spawnSync('prisma', ['migrate', 'deploy'], {
       cwd: process.cwd(),
@@ -115,9 +118,9 @@ function runBuildSteps() {
       env: childEnv,
       shell: false,
     });
-    // Don't fail the build if migrations fail - they can be run separately
+
     if (migrateResult.status !== 0) {
-      console.warn('[Build] Migrations failed - may need to run manually on deployment');
+      console.warn('[Build] Migrations failed - continuing build; post-deploy will retry on Vercel');
     }
   }
 }

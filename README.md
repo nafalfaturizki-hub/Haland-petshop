@@ -164,17 +164,14 @@ See [DATABASE.md](./DATABASE.md) for full schema reference.
 
 ### Vercel Deployment
 ```bash
-# 1. Push to GitHub
-git push origin main
-
-# 2. Connect to Vercel via dashboard
-# https://vercel.com/dashboard
-
-# 3. Set environment variables in Vercel
-# DATABASE_URL, DIRECT_URL, NEXTAUTH_SECRET, NEXTAUTH_URL
-
-# 4. Auto-deploy on push (or manual deploy)
+# 1. Connect the repository to Vercel
+# 2. Add the Neon Database integration from the Vercel Marketplace
+# 3. Set AUTH_SECRET / NEXTAUTH_SECRET and AUTH_URL / NEXTAUTH_URL in Vercel
+# 4. Deploy
 ```
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full zero-configuration guide.
+
 ---
 
 ## 🔧 Configuration

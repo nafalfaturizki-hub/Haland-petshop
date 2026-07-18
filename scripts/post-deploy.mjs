@@ -23,7 +23,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(0);
 }
 
-const shouldSeed = (process.env.SEED_ON_DEPLOY ?? 'true').toLowerCase() !== 'false';
+const shouldSeed = (process.env.SEED_ON_DEPLOY ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true')).toLowerCase() !== 'false';
 
 const env = loadPrismaEnvironment();
 const childEnv = {
@@ -48,7 +48,6 @@ if (migrationResult.status !== 0) {
 
 console.log('[Post-Deploy] Migrations completed successfully');
 
-const shouldSeed = (process.env.SEED_ON_DEPLOY ?? 'true').toLowerCase() !== 'false';
 if (shouldSeed) {
   console.log('[Post-Deploy] Checking whether the database already has seed data...');
   const userCountResult = spawnSync('prisma', ['db', 'execute', '--stdin', '--', 'SELECT COUNT(*)::int AS count FROM "User";'], {
