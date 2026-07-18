@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
@@ -236,7 +236,7 @@ export async function createAppointment(input: z.infer<typeof appointmentSchema>
         });
 
         return created;
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
       await notifyUser(actorId, 'Jadwal dibuat', `Jadwal pemeriksaan untuk ${pet.name} berhasil dibuat.`, 'appointment');
 
@@ -301,7 +301,7 @@ export async function createAppointment(input: z.infer<typeof appointmentSchema>
       });
 
       return created;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     const customerUser = await prisma.customer.findUnique({ where: { id: parsed.data.customerId }, select: { userId: true } });
     await notifyUser(customerUser?.userId, 'Jadwal dibuat', `Jadwal pemeriksaan untuk ${pet.name} berhasil dibuat.`, 'appointment');

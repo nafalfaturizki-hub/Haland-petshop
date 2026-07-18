@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { auth } from '@/lib/auth';
+import { sanitizeText } from '@/lib/sanitize';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { getAuthorizedRoutes } from '@/lib/permission-matrix';
 import { getActorRole, getActorId, roundCurrency, normalizeOptionalText } from '@/lib/utils';
@@ -376,12 +378,12 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
             taxRate,
             taxAmount,
             totalAmount,
-            notes: normalizeOptionalText(parsed.data.notes),
+            notes: sanitizeText(parsed.data.notes, 1000),
             createdById: actorId,
             items: {
               create: invoiceItems.map((item) => ({
                 type: item.type,
-                description: item.description,
+description: sanitizeText(item.description, 200),
                 qty: item.qty,
                 price: item.price,
                 subtotal: item.subtotal,
@@ -427,7 +429,7 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
         }
 
         return createdInvoice;
-      });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       break; // Success, exit retry loop
     } catch (error) {
       lastError = error as Error;
@@ -535,7 +537,7 @@ export async function recordInvoicePayment(input: z.infer<typeof recordPaymentSc
       });
 
       return updated;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     await createAuditLog(actorId ?? 'unknown', 'PAYMENT', 'Invoice', updatedInvoice.id, `Mencatat pembayaran invoice ${updatedInvoice.invoiceNumber}`);
     await notifyUser(invoice.customerId ? (await prisma.customer.findUnique({ where: { id: invoice.customerId }, select: { userId: true } }))?.userId : null, 'Pembayaran tercatat', `Pembayaran untuk invoice ${updatedInvoice.invoiceNumber} telah diterima.`, 'invoice');
@@ -621,7 +623,7 @@ export async function cancelInvoice(input: z.infer<typeof cancelInvoiceSchema>) 
     }
 
     return updated;
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
   await createAuditLog(actorId ?? 'unknown', 'CANCEL', 'Invoice', updatedInvoice.id, `Membatalkan invoice ${updatedInvoice.invoiceNumber}`);
   await notifyUser(invoice.customerId ? (await prisma.customer.findUnique({ where: { id: invoice.customerId }, select: { userId: true } }))?.userId : null, 'Invoice dibatalkan', `Invoice ${updatedInvoice.invoiceNumber} telah dibatalkan.`, 'invoice');

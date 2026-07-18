@@ -1,4 +1,8 @@
 import { PrismaClient, Prisma, type Customer } from '@prisma/client';
+import { validateEnvironment } from './env-validation';
+
+// C3: Validate required environment variables at startup (throws in production).
+validateEnvironment();
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 

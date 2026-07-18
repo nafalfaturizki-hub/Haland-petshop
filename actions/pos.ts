@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { auth } from '@/lib/auth';
 import { prisma, getOrCreateGuestCustomer } from '@/lib/db';
 import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription } from '@/lib/permissions';
@@ -384,7 +384,7 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
       });
 
       return { invoice: createdInvoice, totals: transactionTotals };
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     const { invoice, totals: invoiceTotals } = invoiceResult;
 
