@@ -6,7 +6,7 @@ import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { MedicalRecordDetail } from '@/components/medical-records/MedicalRecordDetail';
 import { MedicalRecordForm } from '@/components/medical-records/MedicalRecordForm';
-import { formatStructuredItemsForInput, parseStructuredItems } from '@/lib/medical-record-utils';
+import { buildStructuredItemsForForm, formatStructuredItemsForInput, parseStructuredItems, serializeStructuredItemsFromInput } from '@/lib/medical-record-utils';
 import { buildMedicalRecordPrefillFromSearchParams } from '@/lib/route-prefill';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
@@ -37,6 +37,13 @@ type RecordRow = {
   doctor: { id: string; name: string } | null;
 };
 
+type StructuredItemInput = {
+  id: string;
+  name: string;
+  qty: string;
+  notes: string;
+};
+
 type MedicalRecordFormState = {
   appointmentId: string;
   date: string;
@@ -49,8 +56,8 @@ type MedicalRecordFormState = {
   heartRate: string;
   respiratoryRate: string;
   diagnosis: string;
-  treatment: string;
-  prescription: string;
+  treatmentItems: StructuredItemInput[];
+  prescriptionItems: StructuredItemInput[];
   labResult: string;
   notes: string;
   status: string;
@@ -69,8 +76,8 @@ const initialFormState: MedicalRecordFormState = {
   heartRate: '',
   respiratoryRate: '',
   diagnosis: '',
-  treatment: '',
-  prescription: '',
+  treatmentItems: [{ id: 'treatment-empty', name: '', qty: '1', notes: '' }],
+  prescriptionItems: [{ id: 'prescription-empty', name: '', qty: '1', notes: '' }],
   labResult: '',
   notes: '',
   status: 'OPEN',
@@ -151,8 +158,8 @@ export default function MedicalRecordsPage() {
       heartRate: record.heartRate != null ? String(record.heartRate) : '',
       respiratoryRate: record.respiratoryRate != null ? String(record.respiratoryRate) : '',
       diagnosis: record.diagnosis ?? '',
-      treatment: formatStructuredItemsForInput(parseStructuredItems(record.treatment ?? '')),
-      prescription: formatStructuredItemsForInput(parseStructuredItems(record.prescription ?? '')),
+      treatmentItems: buildStructuredItemsForForm(record.treatment ?? '').map((item) => ({ id: item.id || `treatment-${Math.random().toString(36).slice(2, 8)}`, name: item.name, qty: String(item.qty), notes: item.notes ?? '' })),
+      prescriptionItems: buildStructuredItemsForForm(record.prescription ?? '').map((item) => ({ id: item.id || `prescription-${Math.random().toString(36).slice(2, 8)}`, name: item.name, qty: String(item.qty), notes: item.notes ?? '' })),
       labResult: record.labResult ?? '',
       notes: record.notes ?? '',
       status: record.status ?? 'OPEN',
@@ -160,8 +167,8 @@ export default function MedicalRecordsPage() {
     });
   }
 
-  function handleFieldChange(field: keyof MedicalRecordFormState, value: string) {
-    setForm((current) => ({ ...current, [field]: value }));
+  function handleFieldChange(field: keyof MedicalRecordFormState, value: string | StructuredItemInput[]) {
+    setForm((current) => ({ ...current, [field]: value as never }));
   }
 
   function handleAttachmentChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -204,8 +211,8 @@ export default function MedicalRecordsPage() {
       heartRate: form.heartRate,
       respiratoryRate: form.respiratoryRate,
       diagnosis: form.diagnosis,
-      treatment: form.treatment,
-      prescription: form.prescription,
+      treatment: serializeStructuredItemsFromInput(form.treatmentItems.map((item) => ({ id: item.id, name: item.name, qty: Number(item.qty || 1), notes: item.notes || null }))),
+      prescription: serializeStructuredItemsFromInput(form.prescriptionItems.map((item) => ({ id: item.id, name: item.name, qty: Number(item.qty || 1), notes: item.notes || null }))),
       labResult: form.labResult,
       notes: form.notes,
       status: form.status,

@@ -102,13 +102,14 @@ model User {
   createdById       String?
   createdAt         DateTime  @default(now())
 
-  createdBy              User?           @relation("UserCreatedBy", fields: [createdById], references: [id])
-  createdUsers           User[]          @relation("UserCreatedBy")
+  createdBy              User?            @relation("UserCreatedBy", fields: [createdById], references: [id])
+  createdUsers           User[]           @relation("UserCreatedBy")
   customer               Customer?
   notifications          Notification[]
   auditLogs              AuditLog[]
-  appointmentsAsDoctor   Appointment[]   @relation("DoctorAppointments")
-  medicalRecordsAsDoctor MedicalRecord[] @relation("DoctorMedicalRecords")
+  appointmentsAsDoctor   Appointment[]    @relation("DoctorAppointments")
+  medicalRecordsAsDoctor MedicalRecord[]  @relation("DoctorMedicalRecords")
+  priceChangeLogs        PriceChangeLog[]
 }
 
 model Customer {
@@ -143,14 +144,15 @@ model Pet {
   gender     String?
   photo      String?
 
-  customer       Customer           @relation(fields: [customerId], references: [id])
-  weightLogs     PetWeightLog[]
-  vaccineRecords PetVaccineRecord[]
-  diseaseRecords PetDiseaseRecord[]
-  allergies      PetAllergy[]
-  appointments   Appointment[]
-  medicalRecords MedicalRecord[]
-  hotelBookings  PetHotelBooking[]
+  customer         Customer             @relation(fields: [customerId], references: [id])
+  weightLogs       PetWeightLog[]
+  vaccineRecords   PetVaccineRecord[]
+  diseaseRecords   PetDiseaseRecord[]
+  allergies        PetAllergy[]
+  appointments     Appointment[]
+  medicalRecords   MedicalRecord[]
+  hotelBookings    PetHotelBooking[]
+  hotelBookingPets PetHotelBookingPet[]
 
   @@index([customerId])
 }
@@ -214,13 +216,13 @@ model Appointment {
 }
 
 model MedicalRecord {
-  id              String                 @id @default(cuid())
-  recordNumber    String                 @unique
-  appointmentId   String                 @unique
+  id              String              @id @default(cuid())
+  recordNumber    String              @unique
+  appointmentId   String              @unique
   customerId      String
   petId           String
   doctorId        String
-  date            DateTime               @default(now())
+  date            DateTime            @default(now())
   chiefComplaint  String?
   history         String?
   physicalExam    String?
@@ -235,10 +237,10 @@ model MedicalRecord {
   labResult       String?
   notes           String?
   attachments     String?
-  status          MedicalRecordStatus    @default(OPEN)
-  version         Int                    @default(1)
-  createdAt       DateTime               @default(now())
-  updatedAt       DateTime               @updatedAt
+  status          MedicalRecordStatus @default(OPEN)
+  version         Int                 @default(1)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
   appointment Appointment @relation(fields: [appointmentId], references: [id])
   customer    Customer    @relation(fields: [customerId], references: [id])
@@ -253,7 +255,7 @@ model MedicalRecord {
 model PetHotelBooking {
   id                  String                @id @default(cuid())
   bookingNumber       String?               @unique
-  petId               String
+  petId               String?
   roomId              String?
   checkInDate         DateTime
   checkOutDate        DateTime
@@ -263,13 +265,27 @@ model PetHotelBooking {
   requestedByCustomer Boolean               @default(false)
   notes               String?
 
-  pet          Pet           @relation(fields: [petId], references: [id])
-  room         PetHotelRoom? @relation(fields: [roomId], references: [id])
+  pet          Pet?                 @relation(fields: [petId], references: [id])
+  room         PetHotelRoom?        @relation(fields: [roomId], references: [id])
   logs         PetHotelLog[]
   invoiceItems InvoiceItem[]
+  bookingPets  PetHotelBookingPet[]
 
   @@index([status, checkInDate, checkOutDate])
   @@index([roomId, checkInDate, checkOutDate])
+}
+
+model PetHotelBookingPet {
+  id        String   @id @default(cuid())
+  bookingId String
+  petId     String
+  createdAt DateTime @default(now())
+
+  booking PetHotelBooking @relation(fields: [bookingId], references: [id])
+  pet     Pet             @relation(fields: [petId], references: [id])
+
+  @@unique([bookingId, petId])
+  @@index([petId])
 }
 
 model PetHotelRoom {
@@ -300,35 +316,54 @@ model PetHotelLog {
 }
 
 model Product {
-  id          String        @id @default(cuid())
-  name        String
-  sku         String?
-  barcode     String?
-  brand       String?
-  description String?
-  categoryId  String?
-  supplierId  String?
-  unit        String?
-  buyPrice    Float         @default(0)
-  sellPrice   Float         @default(0)
-  costPrice   Float         @default(0)
-  stock       Int           @default(0)
-  minStock    Int           @default(0)
-  maxStock    Int?
-  status      ProductStatus @default(ACTIVE)
-  imageUrl    String?
-  isArchived  Boolean       @default(false)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id                       String        @id @default(cuid())
+  name                     String
+  sku                      String?
+  barcode                  String?
+  brand                    String?
+  description              String?
+  categoryId               String?
+  supplierId               String?
+  unit                     String?
+  buyPrice                 Float         @default(0)
+  sellPrice                Float         @default(0)
+  costPrice                Float         @default(0)
+  ownerPriceOverride       Float?
+  ownerPriceOverrideReason String?
+  ownerPriceUpdatedAt      DateTime?
+  stock                    Int           @default(0)
+  minStock                 Int           @default(0)
+  maxStock                 Int?
+  status                   ProductStatus @default(ACTIVE)
+  imageUrl                 String?
+  isArchived               Boolean       @default(false)
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
 
-  category       ProductCategory? @relation(fields: [categoryId], references: [id])
-  supplier       Supplier?        @relation(fields: [supplierId], references: [id])
-  stockMovements StockMovement[]
-  invoiceItems   InvoiceItem[]
+  category        ProductCategory? @relation(fields: [categoryId], references: [id])
+  supplier        Supplier?        @relation(fields: [supplierId], references: [id])
+  stockMovements  StockMovement[]
+  invoiceItems    InvoiceItem[]
+  priceChangeLogs PriceChangeLog[]
 
   @@index([categoryId])
   @@index([supplierId])
   @@index([isArchived])
+}
+
+model PriceChangeLog {
+  id            String   @id @default(cuid())
+  productId     String
+  changedById   String?
+  previousPrice Float
+  newPrice      Float
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  product   Product @relation(fields: [productId], references: [id])
+  changedBy User?   @relation(fields: [changedById], references: [id])
+
+  @@index([productId, createdAt])
 }
 
 model Procedure {

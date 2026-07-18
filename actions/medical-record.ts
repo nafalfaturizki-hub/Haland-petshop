@@ -7,10 +7,11 @@ import { auth } from '@/lib/auth';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { parseStructuredItems, serializeStructuredItems } from '@/lib/medical-record-utils';
 import { getActorRole, getActorId, normalizeOptionalText, normalizeOptionalNumber } from '@/lib/utils';
-import { generateMedicalRecordNumber } from '@/lib/numbering';
+import { generateMedicalRecordNumber, generateInvoiceNumber } from '@/lib/numbering';
 import { notifyUser } from '@/lib/notifications-helper';
 import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription } from '@/lib/permissions';
 import { getAuthorizedRoutes } from '@/lib/permission-matrix';
+import { roundCurrency } from '@/lib/utils';
 
 const MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_ATTACHMENT_TYPES = [
@@ -51,6 +52,84 @@ const updateMedicalRecordSchema = medicalRecordSchema.extend({
 function serializeMedicalRecordItems(value: string | undefined | null) {
   const items = parseStructuredItems(value);
   return items.length > 0 ? serializeStructuredItems(items) : null;
+}
+
+async function createMedicalRecordInvoice(tx: Prisma.TransactionClient, record: { id: string; customerId: string; appointmentId: string; petId: string; doctorId: string; diagnosis: string | null; treatment: string | null; prescription: string | null; recordNumber: string }, actorId: string) {
+  const existingInvoice = await tx.invoice.findFirst({ where: { medicalRecordId: record.id } });
+  if (existingInvoice) {
+    return existingInvoice;
+  }
+
+  const treatmentItems = parseStructuredItems(record.treatment ?? '');
+  const prescriptionItems = parseStructuredItems(record.prescription ?? '');
+  const invoiceItems = [] as Array<{ type: 'TINDAKAN' | 'OBAT'; description: string; qty: number; price: number; subtotal: number; procedureId: string | null; productId: string | null; petHotelBookingId: string | null }>;
+
+  for (const item of treatmentItems) {
+    const procedure = await tx.procedure.findFirst({ where: { name: { equals: item.name, mode: 'insensitive' } } });
+    invoiceItems.push({
+      type: 'TINDAKAN',
+      description: item.name,
+      qty: item.qty,
+      price: roundCurrency(procedure?.price ?? 0),
+      subtotal: roundCurrency((procedure?.price ?? 0) * item.qty),
+      procedureId: procedure?.id ?? null,
+      productId: null,
+      petHotelBookingId: null,
+    });
+  }
+
+  for (const item of prescriptionItems) {
+    const product = await tx.product.findFirst({ where: { name: { equals: item.name, mode: 'insensitive' } } });
+    invoiceItems.push({
+      type: 'OBAT',
+      description: item.name,
+      qty: item.qty,
+      price: roundCurrency(product?.sellPrice ?? 0),
+      subtotal: roundCurrency((product?.sellPrice ?? 0) * item.qty),
+      procedureId: null,
+      productId: product?.id ?? null,
+      petHotelBookingId: null,
+    });
+  }
+
+  if (invoiceItems.length === 0) {
+    return null;
+  }
+
+  const subtotal = roundCurrency(invoiceItems.reduce((sum, item) => sum + item.subtotal, 0));
+  const invoiceNumber = await generateInvoiceNumber();
+  const invoice = await tx.invoice.create({
+    data: {
+      customerId: record.customerId,
+      appointmentId: record.appointmentId,
+      medicalRecordId: record.id,
+      petId: record.petId,
+      doctorId: record.doctorId,
+      invoiceNumber,
+      status: 'UNPAID',
+      subtotal,
+      discountAmount: 0,
+      taxRate: 0,
+      taxAmount: 0,
+      totalAmount: subtotal,
+      notes: `Rekam medis ${record.recordNumber}${record.diagnosis ? ` — ${record.diagnosis}` : ''}`,
+      createdById: actorId,
+      items: {
+        create: invoiceItems.map((item) => ({
+          type: item.type,
+          description: item.description,
+          qty: item.qty,
+          price: item.price,
+          subtotal: item.subtotal,
+          productId: item.productId,
+          procedureId: item.procedureId,
+          petHotelBookingId: item.petHotelBookingId,
+        })),
+      },
+    },
+  });
+
+  return invoice;
 }
 
 function parseAttachments(value: string | undefined | null) {
@@ -273,6 +352,20 @@ export async function createMedicalRecord(input: z.infer<typeof medicalRecordSch
       data: { status: 'DONE' },
     });
 
+    if (parsed.data.status === 'COMPLETED' || parsed.data.status === 'CLOSED') {
+      await createMedicalRecordInvoice(tx, {
+        id: created.id,
+        customerId: appointment.customerId,
+        appointmentId: parsed.data.appointmentId,
+        petId: appointment.petId,
+        doctorId: actorId,
+        diagnosis: normalizeOptionalText(parsed.data.diagnosis),
+        treatment: serializeMedicalRecordItems(parsed.data.treatment),
+        prescription: serializeMedicalRecordItems(parsed.data.prescription),
+        recordNumber,
+      }, actorId);
+    }
+
     await tx.auditLog.create({
       data: {
         userId: actorId,
@@ -363,6 +456,20 @@ export async function updateMedicalRecord(input: z.infer<typeof updateMedicalRec
       where: { id: existing.appointmentId },
       data: { status: 'DONE' },
     });
+
+    if (parsed.data.status === 'COMPLETED' || parsed.data.status === 'CLOSED') {
+      await createMedicalRecordInvoice(tx, {
+        id: updated.id,
+        customerId: existing.customerId,
+        appointmentId: existing.appointmentId,
+        petId: existing.petId,
+        doctorId: existing.doctorId,
+        diagnosis: normalizeOptionalText(parsed.data.diagnosis),
+        treatment: serializeMedicalRecordItems(parsed.data.treatment),
+        prescription: serializeMedicalRecordItems(parsed.data.prescription),
+        recordNumber: updated.recordNumber,
+      }, actorId);
+    }
 
     await tx.auditLog.create({
       data: {

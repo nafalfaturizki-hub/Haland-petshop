@@ -665,13 +665,13 @@ export async function getReportData(input: ReportFilters) {
             ...(filters.status ? { status: filters.status as never } : {}),
             ...(filters.petId ? { petId: filters.petId } : {}),
           },
-          include: { pet: { select: { name: true } }, room: { select: { name: true } } },
+          include: { bookingPets: { include: { pet: { select: { name: true } } } }, room: { select: { name: true } } },
           orderBy: { checkInDate: 'desc' },
         });
         const rows = bookings.map((booking) => ({
           id: booking.id,
           bookingNumber: booking.bookingNumber ?? '-',
-          pet: booking.pet.name,
+          pet: booking.bookingPets.map((entry) => entry.pet?.name ?? '').filter(Boolean).join(', ') || '-',
           room: booking.room?.name ?? '-',
           checkInDate: booking.checkInDate.toISOString().slice(0, 10),
           checkOutDate: booking.checkOutDate.toISOString().slice(0, 10),

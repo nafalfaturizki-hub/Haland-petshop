@@ -28,7 +28,7 @@ const updatePetHotelRoomSchema = petHotelRoomSchema.extend({
 });
 
 const petHotelBookingSchema = z.object({
-  petId: z.string().trim().min(1, 'Hewan wajib dipilih.'),
+  petIds: z.array(z.string().trim().min(1)).min(1, 'Minimal satu hewan wajib dipilih.'),
   roomId: z.string().trim().optional().or(z.literal('')),
   checkInDate: z.string().trim().min(1, 'Tanggal check-in wajib diisi.'),
   checkOutDate: z.string().trim().min(1, 'Tanggal check-out wajib diisi.'),
@@ -53,6 +53,41 @@ const extendPetHotelBookingSchema = z.object({
 const HOTEL_DAILY_RATE = 100000;
 
 type RoomStatus = 'AVAILABLE' | 'RESERVED' | 'OCCUPIED' | 'MAINTENANCE' | 'INACTIVE';
+type PetHotelBookingStatusValue = 'BOOKED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED';
+
+type PetHotelBookingPetSummary = {
+  id: string;
+  petId: string;
+  pet: {
+    id: string;
+    name: string;
+    customerId: string;
+    customer?: { id: string; name: string } | null;
+  };
+};
+
+type PetHotelBookingWithPets = {
+  id: string;
+  bookingNumber: string | null;
+  petId: string | null;
+  roomId: string | null;
+  checkInDate: Date;
+  checkOutDate: Date;
+  actualCheckInAt: Date | null;
+  actualCheckOutAt: Date | null;
+  status: PetHotelBookingStatusValue;
+  requestedByCustomer: boolean;
+  notes: string | null;
+  room: {
+    id: string;
+    name: string;
+    pricePerNight?: number;
+    status?: string;
+    maintenanceStatus?: string;
+  } | null;
+  bookingPets: PetHotelBookingPetSummary[];
+};
+
 type PetHotelTransactionClient = Prisma.TransactionClient;
 
 function getStartOfDay(date: Date) {
@@ -306,13 +341,13 @@ export async function listPetHotelBookings() {
     }
 
     const bookings = await prisma.petHotelBooking.findMany({
-      where: { pet: { customerId: customer.id } },
+      where: { bookingPets: { some: { pet: { customerId: customer.id } } } },
       orderBy: { checkInDate: 'desc' },
       include: {
-        pet: { select: { id: true, name: true } },
+        bookingPets: { include: { pet: { select: { id: true, name: true, customerId: true } } } },
         room: { select: { id: true, name: true } },
       },
-    });
+    }) as PetHotelBookingWithPets[];
 
     return { success: true, bookings };
   }
@@ -320,10 +355,10 @@ export async function listPetHotelBookings() {
   const bookings = await prisma.petHotelBooking.findMany({
     orderBy: { checkInDate: 'desc' },
     include: {
-      pet: { select: { id: true, name: true, customer: { select: { id: true, name: true } } } },
+      bookingPets: { include: { pet: { select: { id: true, name: true, customerId: true, customer: { select: { id: true, name: true } } } } } },
       room: { select: { id: true, name: true } },
     },
-  });
+  }) as PetHotelBookingWithPets[];
 
   return { success: true, bookings };
 }
@@ -357,15 +392,16 @@ export async function createPetHotelBooking(input: z.infer<typeof petHotelBookin
     return { success: false, message: 'Tidak bisa membuat reservasi untuk tanggal yang sudah lewat.' };
   }
 
-  const pet = await prisma.pet.findUnique({ where: { id: parsed.data.petId } });
-  if (!pet) {
-    return { success: false, message: 'Hewan tidak ditemukan.' };
+  const pets = await prisma.pet.findMany({ where: { id: { in: parsed.data.petIds } } });
+  if (pets.length !== parsed.data.petIds.length) {
+    return { success: false, message: 'Satu atau lebih hewan tidak ditemukan.' };
   }
 
   if (actorRole === 'CUSTOMER') {
     const customer = await getCustomerForSession(actorId);
-    if (!customer || pet.customerId !== customer.id) {
-      return { success: false, message: 'Hewan yang dipilih tidak milik Anda.' };
+    const ownedPetIds = pets.map((pet) => pet.customerId);
+    if (!customer || ownedPetIds.some((customerId) => customerId !== customer.id)) {
+      return { success: false, message: 'Satu atau lebih hewan yang dipilih tidak milik Anda.' };
     }
   } else {
     const permissionCheck = await enforceActionPermission({
@@ -402,7 +438,6 @@ export async function createPetHotelBooking(input: z.infer<typeof petHotelBookin
   const booking = await prisma.$transaction(async (tx: PetHotelTransactionClient) => {
     const createdBooking = await tx.petHotelBooking.create({
       data: {
-        petId: parsed.data.petId,
         roomId: parsed.data.roomId || null,
         checkInDate,
         checkOutDate,
@@ -410,6 +445,9 @@ export async function createPetHotelBooking(input: z.infer<typeof petHotelBookin
         requestedByCustomer: parsed.data.requestedByCustomer ?? false,
         bookingNumber: await generateBookingCode(),
         notes: normalizeOptionalText(parsed.data.notes),
+        bookingPets: {
+          create: pets.map((pet) => ({ petId: pet.id })),
+        },
       },
     });
 
@@ -426,7 +464,7 @@ export async function createPetHotelBooking(input: z.infer<typeof petHotelBookin
         action: 'CREATE',
         entity: 'PetHotelBooking',
         entityId: createdBooking.id,
-        description: `Membuat reservasi hotel untuk ${pet.name}`,
+        description: `Membuat reservasi hotel untuk ${pets.map((pet) => pet.name).join(', ')}`,
       },
     });
 
@@ -437,8 +475,11 @@ export async function createPetHotelBooking(input: z.infer<typeof petHotelBookin
     await syncRoomStatus(booking.roomId);
   }
 
-  const customer = await prisma.customer.findFirst({ where: { id: pet.customerId }, select: { userId: true } });
-  await notifyUser(customer?.userId, 'Reservasi pet hotel dibuat', `Reservasi pet hotel untuk ${pet.name} berhasil dibuat.`, 'pet-hotel');
+  const customerIds = [...new Set(pets.map((pet) => pet.customerId))];
+  for (const customerId of customerIds) {
+    const customer = await prisma.customer.findFirst({ where: { id: customerId }, select: { userId: true } });
+    await notifyUser(customer?.userId, 'Reservasi pet hotel dibuat', `Reservasi pet hotel untuk ${pets.map((pet) => pet.name).join(', ')} berhasil dibuat.`, 'pet-hotel');
+  }
 
   revalidatePath('/portal/pet-hotel');
   revalidatePath('/pet-hotel');
@@ -456,8 +497,8 @@ export async function cancelPetHotelBooking(id: string) {
 
   const booking = await prisma.petHotelBooking.findUnique({
     where: { id },
-    include: { pet: { select: { customerId: true, name: true } } },
-  });
+    include: { bookingPets: { include: { pet: { select: { customerId: true, name: true } } } } },
+  }) as PetHotelBookingWithPets | null;
 
   if (!booking) {
     return { success: false, message: 'Reservasi tidak ditemukan.' };
@@ -465,7 +506,7 @@ export async function cancelPetHotelBooking(id: string) {
 
   if (actorRole === 'CUSTOMER') {
     const customer = await getCustomerForSession(actorId);
-    if (!customer || booking.pet.customerId !== customer.id) {
+    if (!customer || booking.bookingPets.some((entry) => entry.pet.customerId !== customer.id)) {
       return { success: false, message: 'Anda tidak berwenang membatalkan reservasi ini.' };
     }
     if (booking.status !== 'BOOKED') {
@@ -504,7 +545,7 @@ export async function cancelPetHotelBooking(id: string) {
         action: 'CANCEL',
         entity: 'PetHotelBooking',
         entityId: cancelled.id,
-        description: `Membatalkan reservasi untuk ${booking.pet.name}`,
+        description: `Membatalkan reservasi untuk ${booking.bookingPets.map((entry) => entry.pet.name).join(', ')}`,
       },
     });
 
@@ -574,10 +615,10 @@ export async function checkInPetHotelBooking(id: string) {
   const booking = await prisma.petHotelBooking.findUnique({
     where: { id },
     include: {
-      pet: { select: { id: true, name: true, customerId: true } },
+      bookingPets: { include: { pet: { select: { id: true, name: true, customerId: true } } } },
       room: { select: { id: true, name: true, status: true, maintenanceStatus: true } },
     },
-  });
+  }) as PetHotelBookingWithPets | null;
 
   if (!booking) {
     return { success: false, message: 'Reservasi tidak ditemukan.' };
@@ -631,7 +672,7 @@ export async function checkInPetHotelBooking(id: string) {
         action: 'CHECK_IN',
         entity: 'PetHotelBooking',
         entityId: checkedIn.id,
-        description: `Check-in hotel untuk ${booking.pet.name}`,
+        description: `Check-in hotel untuk ${booking.bookingPets.map((entry) => entry.pet.name).join(', ')}`,
       },
     });
 
@@ -639,8 +680,10 @@ export async function checkInPetHotelBooking(id: string) {
   });
 
   await syncRoomStatus(roomId);
-  const customer = await prisma.customer.findFirst({ where: { id: booking.pet.customerId }, select: { userId: true } });
-  await notifyUser(customer?.userId, 'Check-in pet hotel', `Status reservasi ${booking.id} telah berubah menjadi check-in.`, 'pet-hotel');
+  for (const entry of booking.bookingPets) {
+    const customer = await prisma.customer.findFirst({ where: { id: entry.pet.customerId }, select: { userId: true } });
+    await notifyUser(customer?.userId, 'Check-in pet hotel', `Status reservasi ${booking.id} telah berubah menjadi check-in.`, 'pet-hotel');
+  }
   revalidatePath('/pet-hotel');
   return { success: true, booking: updated };
 }
@@ -657,8 +700,8 @@ export async function checkOutPetHotelBooking(id: string) {
 
   const booking = await prisma.petHotelBooking.findUnique({
     where: { id },
-    include: { pet: { select: { id: true, name: true, customerId: true } }, room: true },
-  });
+    include: { bookingPets: { include: { pet: { select: { id: true, name: true, customerId: true } } } }, room: true },
+  }) as PetHotelBookingWithPets | null;
 
   if (!booking) {
     return { success: false, message: 'Reservasi tidak ditemukan.' };
@@ -671,8 +714,8 @@ export async function checkOutPetHotelBooking(id: string) {
   const invoiceDays = getBookingStayDays({
     checkInDate: booking.checkInDate,
     checkOutDate: booking.checkOutDate,
-    actualCheckInAt: (booking as typeof booking & { actualCheckInAt: Date | null }).actualCheckInAt ?? null,
-    actualCheckOutAt: (booking as typeof booking & { actualCheckOutAt: Date | null }).actualCheckOutAt ?? null,
+    actualCheckInAt: booking.actualCheckInAt ?? null,
+    actualCheckOutAt: booking.actualCheckOutAt ?? null,
   });
   const updated = await prisma.$transaction(async (tx: PetHotelTransactionClient) => {
     const checkedOut = await tx.petHotelBooking.update({
@@ -693,7 +736,7 @@ export async function checkOutPetHotelBooking(id: string) {
         action: 'CHECK_OUT',
         entity: 'PetHotelBooking',
         entityId: checkedOut.id,
-        description: `Check-out hotel untuk ${booking.pet.name}`,
+        description: `Check-out hotel untuk ${booking.bookingPets.map((entry) => entry.pet.name).join(', ')}`,
       },
     });
 
@@ -704,21 +747,30 @@ export async function checkOutPetHotelBooking(id: string) {
     await syncRoomStatus(booking.roomId);
   }
 
-  const customer = await prisma.customer.findFirst({ where: { id: booking.pet.customerId }, select: { userId: true } });
-  await notifyUser(customer?.userId, 'Check-out pet hotel', `Reservasi pet hotel untuk ${booking.pet.name} telah selesai.`, 'pet-hotel');
+  for (const entry of booking.bookingPets) {
+    const customer = await prisma.customer.findFirst({ where: { id: entry.pet.customerId }, select: { userId: true } });
+    await notifyUser(customer?.userId, 'Check-out pet hotel', `Reservasi pet hotel untuk ${entry.pet.name} telah selesai.`, 'pet-hotel');
+  }
 
-  await createInvoice({
-    customerId: booking.pet.customerId,
-    petId: booking.pet.id,
+  const primaryCustomerId = booking.bookingPets[0]?.pet.customerId ?? '';
+  const primaryPetId = booking.bookingPets[0]?.pet.id ?? '';
+
+  const invoiceResult = await createInvoice({
+    customerId: primaryCustomerId,
+    petId: primaryPetId,
     items: [{
       type: 'PET_HOTEL',
-      description: `Penginapan ${booking.pet.name}`,
+      description: `Penginapan ${booking.bookingPets.map((entry) => entry.pet.name).join(', ')}`,
       qty: invoiceDays,
       price: booking.room?.pricePerNight ?? HOTEL_DAILY_RATE,
       petHotelBookingId: booking.id,
     }],
-    notes: `Penginapan pet hotel untuk ${booking.pet.name}`,
+    notes: `Penginapan pet hotel untuk ${booking.bookingPets.map((entry) => entry.pet.name).join(', ')}`,
   });
+
+  if (!invoiceResult.success) {
+    return { success: false, message: invoiceResult.message ?? 'Gagal membuat invoice pet hotel.' };
+  }
 
   revalidatePath('/pet-hotel');
   return { success: true, booking: updated };

@@ -9,6 +9,14 @@ export function serializeStructuredItems(items: MedicalRecordStructuredItem[]) {
   return JSON.stringify(items);
 }
 
+export function buildStructuredItemsForForm(value: string | null | undefined): MedicalRecordStructuredItem[] {
+  return parseStructuredItems(value);
+}
+
+export function serializeStructuredItemsFromInput(items: MedicalRecordStructuredItem[]) {
+  return serializeStructuredItems(items.filter((item) => item.name.trim().length > 0));
+}
+
 export function formatStructuredItemsForInput(items: MedicalRecordStructuredItem[]) {
   return items
     .map((item) => {

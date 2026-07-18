@@ -8,7 +8,7 @@ import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
 export default function CustomerPetHotelPage() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [pets, setPets] = useState<any[]>([]);
-  const [form, setForm] = useState({ petId: '', checkInDate: '', checkOutDate: '', notes: '' });
+  const [form, setForm] = useState({ petIds: [] as string[], checkInDate: '', checkOutDate: '', notes: '' });
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -32,7 +32,7 @@ export default function CustomerPetHotelPage() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     const result = await createPetHotelBooking({
-      petId: form.petId,
+      petIds: form.petIds,
       checkInDate: form.checkInDate,
       checkOutDate: form.checkOutDate,
       requestedByCustomer: true,
@@ -41,7 +41,7 @@ export default function CustomerPetHotelPage() {
 
     if (result.success) {
       setMessage('Permintaan reservasi berhasil dikirim.');
-      setForm({ petId: '', checkInDate: '', checkOutDate: '', notes: '' });
+      setForm({ petIds: [], checkInDate: '', checkOutDate: '', notes: '' });
       await loadData();
       return;
     }
@@ -76,14 +76,14 @@ export default function CustomerPetHotelPage() {
 
         <label className="block text-sm text-zinc-600">
           Hewan
-          <select value={form.petId} onChange={(e) => setForm({ ...form, petId: e.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
-            <option value="">Pilih hewan</option>
+          <select multiple value={form.petIds} onChange={(e) => setForm({ ...form, petIds: Array.from(e.target.selectedOptions, (option) => option.value) })} required className="mt-1 min-h-32 w-full rounded-lg border border-zinc-200 px-3 py-2">
             {pets.map((pet) => (
               <option key={pet.id} value={pet.id}>
                 {pet.name}
               </option>
             ))}
           </select>
+          <span className="mt-1 text-xs text-zinc-500">Pilih satu atau lebih hewan untuk reservasi bersama.</span>
         </label>
 
         <label className="block text-sm text-zinc-600">
@@ -117,7 +117,7 @@ export default function CustomerPetHotelPage() {
             <div key={booking.id} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="font-semibold text-zinc-900">{booking.pet?.name}</p>
+                  <p className="font-semibold text-zinc-900">{booking.bookingPets?.map((item: any) => item.pet?.name).join(', ') || 'Hewan tidak tercatat'}</p>
                   <div className="mt-1 flex items-center gap-4 text-sm text-zinc-600">
                     <span>{new Date(booking.checkInDate).toLocaleDateString('id-ID')}</span>
                     <span>→</span>

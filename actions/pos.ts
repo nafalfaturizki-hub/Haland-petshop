@@ -14,6 +14,13 @@ import { getActorRole } from '@/lib/utils';
 import { generateInvoiceNumber } from '@/lib/numbering';
 import { deductProductStock, validateStockAvailability } from '@/lib/inventory-helpers';
 
+const POS_RETRY_DELAYS_MS = [1000, 2000, 4000];
+const POS_TIMEOUT_MS = 30_000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 const productSearchSchema = z.object({
   query: z.string().trim().min(1, 'Pencarian tidak boleh kosong.'),
 });
@@ -247,7 +254,7 @@ export async function validatePosSale(input: z.infer<typeof createPosSaleSchema>
 
 export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) {
   const session = await auth();
-  const _actorRole = getActorRole(session);
+  const actorRole = getActorRole(session);
   const actorId = session?.user?.id;
 
   try {
@@ -259,9 +266,6 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
     const parsed = validation.parsedData;
     const hasManualBuyer = Boolean(parsed.walkInName?.trim());
     const hasSelectedCustomer = Boolean(parsed.customerId?.trim());
-    const _subtotal = validation.subtotal;
-    const _discountValue = parsed.discountAmount ?? 0;
-    const _computedTotals = validation.totals;
 
     let resolvedCustomerId: string;
     if (hasManualBuyer && !hasSelectedCustomer) {
@@ -279,13 +283,6 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
     const invoiceNumber = await generateInvoiceNumber();
     const productStockDeductionItems = items.map((item) => ({ productId: item.productId, qty: item.qty }));
 
-    if (productStockDeductionItems.length > 0) {
-      const stockAvailability = await validateStockAvailability(prisma, productStockDeductionItems);
-      if (!stockAvailability.ok) {
-        return { success: false, message: stockAvailability.message };
-      }
-    }
-
     const invoiceResult = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const productLookups = await Promise.all(
         items.map((item) => tx.product.findUnique({ where: { id: item.productId } })),
@@ -301,6 +298,10 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
           throw new Error(`Harga produk ${product.name} sudah berubah. Segarkan halaman dan coba lagi.`);
         }
 
+        if (product.stock < item.qty) {
+          throw new Error(`Stok produk ${product.name} tidak mencukupi.`);
+        }
+
         return {
           product,
           qty: item.qty,
@@ -314,8 +315,18 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
       const taxRate = parsed.taxRate ?? 0;
       const discountValue = parsed.discountAmount ?? 0;
       const transactionTotals = calculateFinalTotal({ subtotal, discountType: parsed.discountType, discountAmount: discountValue, taxRate });
+      const paymentStatus = getPaymentStatus(parsed.paymentAmount, transactionTotals.totalAmount);
 
-      const status = getPaymentStatus(parsed.paymentAmount, transactionTotals.totalAmount);
+      for (const item of validatedItems) {
+        const updateResult = await tx.product.updateMany({
+          where: { id: item.product.id, stock: { gte: item.qty } },
+          data: { stock: { decrement: item.qty } },
+        });
+
+        if (updateResult.count === 0) {
+          throw new Error(`Stok produk ${item.product.name} berubah saat diproses.`);
+        }
+      }
 
       const createdInvoice = await tx.invoice.create({
         data: {
@@ -323,7 +334,7 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
           walkInName: hasManualBuyer ? parsed.walkInName?.trim() : null,
           createdById: actorId ?? null,
           invoiceNumber,
-          status,
+          status: paymentStatus,
           subtotal: transactionTotals.subtotal,
           discountAmount: transactionTotals.discountAmount,
           taxRate: transactionTotals.taxRate,
@@ -352,11 +363,6 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
           payments: true,
         },
       });
-
-      const deductionResult = await deductProductStock(tx, productStockDeductionItems);
-      if (!deductionResult.ok) {
-        throw new Error('Stok produk berubah, transaksi dibatalkan.');
-      }
 
       for (const item of validatedItems) {
         await tx.stockMovement.create({
@@ -441,19 +447,26 @@ type PosSaleResult = Awaited<ReturnType<typeof createPosSale>>;
 export async function createPosSaleWithRetry(input: z.infer<typeof createPosSaleSchema>) {
   let lastResult: PosSaleResult | undefined;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < POS_RETRY_DELAYS_MS.length; attempt += 1) {
+    const startedAt = Date.now();
     const result = await createPosSale(input);
     lastResult = result;
+
     if (result.success) {
       return result;
     }
 
-    if (attempt === 1) {
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= POS_TIMEOUT_MS) {
       break;
+    }
+
+    if (attempt < POS_RETRY_DELAYS_MS.length - 1) {
+      await sleep(POS_RETRY_DELAYS_MS[attempt]);
     }
   }
 
-  return lastResult ?? { success: false, message: 'Transaksi POS gagal.' };
+  return lastResult ?? { success: false, message: 'Transaksi POS gagal setelah beberapa percobaan.' };
 }
 
 export async function getPosTransactionHistory(input: z.infer<typeof getPosTransactionHistorySchema>) {

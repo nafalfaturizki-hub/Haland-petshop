@@ -30,7 +30,7 @@ type BookingRow = {
   checkOutDate: string;
   status: string;
   notes?: string | null;
-  pet: { name: string; customer?: { name: string } | null };
+  pets: Array<{ name: string; customer?: { name: string } | null }>;
   room: { name: string } | null;
 };
 
@@ -51,7 +51,7 @@ export default function PetHotelPage() {
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [roomForm, setRoomForm] = useState({ name: '', roomNumber: '', roomType: 'STANDARD', pricePerNight: '100000', capacity: '1', status: 'AVAILABLE', cleaningStatus: 'CLEAN', maintenanceStatus: 'OPERATIONAL' });
-  const [bookingForm, setBookingForm] = useState({ petId: '', roomId: '', checkInDate: '', checkOutDate: '', notes: '' });
+  const [bookingForm, setBookingForm] = useState({ petIds: [] as string[], roomId: '', checkInDate: '', checkOutDate: '', notes: '' });
   const [selectedBookingId, setSelectedBookingId] = useState<string>('');
   const [logForm, setLogForm] = useState({ type: 'NOTE' as 'FEEDING' | 'MEDICINE' | 'NOTE', description: '', photo: '' });
   const [logs, setLogs] = useState<any[]>([]);
@@ -92,7 +92,7 @@ export default function PetHotelPage() {
           checkOutDate: b.checkOutDate ? new Date(b.checkOutDate).toISOString() : '',
           status: b.status,
           notes: b.notes ?? null,
-          pet: { name: b.pet?.name ?? '-', customer: b.pet?.customer ?? null },
+          pets: (b.bookingPets ?? []).map((item: any) => ({ name: item.pet?.name ?? '-', customer: item.pet?.customer ?? null })),
           room: b.room ? { name: b.room.name } : null,
         })));
       }
@@ -150,7 +150,7 @@ export default function PetHotelPage() {
   async function handleBookingSubmit(event: React.FormEvent) {
     event.preventDefault();
     const result = await createPetHotelBooking({
-      petId: bookingForm.petId,
+      petIds: bookingForm.petIds,
       roomId: bookingForm.roomId || undefined,
       checkInDate: bookingForm.checkInDate,
       checkOutDate: bookingForm.checkOutDate,
@@ -159,7 +159,7 @@ export default function PetHotelPage() {
 
     if (result.success) {
       setMessage('Reservasi dibuat.');
-      setBookingForm({ petId: '', roomId: '', checkInDate: '', checkOutDate: '', notes: '' });
+      setBookingForm({ petIds: [], roomId: '', checkInDate: '', checkOutDate: '', notes: '' });
       await loadData();
       return;
     }
@@ -259,7 +259,7 @@ export default function PetHotelPage() {
   }
 
   function openCreateBooking() {
-    setBookingForm({ petId: '', roomId: '', checkInDate: '', checkOutDate: '', notes: '' });
+    setBookingForm({ petIds: [], roomId: '', checkInDate: '', checkOutDate: '', notes: '' });
     setShowBookingForm(true);
   }
 
@@ -289,13 +289,13 @@ export default function PetHotelPage() {
   const filteredBookings = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return bookings;
-    return bookings.filter((booking) => `${booking.pet?.name ?? ''} ${booking.room?.name ?? ''} ${booking.status}`.toLowerCase().includes(query));
+    return bookings.filter((booking) => `${booking.pets.map((pet) => pet.name).join(', ')} ${booking.room?.name ?? ''} ${booking.status}`.toLowerCase().includes(query));
   }, [bookings, search]);
 
   const bookingColumns: Array<{ key: keyof BookingRow; header: string; render?: (row: BookingRow) => ReactNode }> = [
     { key: 'checkInDate', header: 'Check-in', render: (row) => new Date(row.checkInDate).toLocaleDateString('id-ID') },
     { key: 'checkOutDate', header: 'Check-out', render: (row) => new Date(row.checkOutDate).toLocaleDateString('id-ID') },
-    { key: 'pet', header: 'Hewan', render: (row) => <div><div className="font-medium text-zinc-900">{row.pet?.name ?? '-'}</div><div className="text-xs text-zinc-500">{row.pet?.customer?.name ?? '-'}</div></div> },
+    { key: 'pets', header: 'Hewan', render: (row) => <div><div className="font-medium text-zinc-900">{row.pets.length > 0 ? row.pets.map((pet) => pet.name).join(', ') : '-'}</div><div className="text-xs text-zinc-500">{row.pets.length > 0 ? row.pets.map((pet) => pet.customer?.name ?? 'Tanpa pemilik').join(', ') : '-'}</div></div> },
     { key: 'status', header: 'Status', render: (row) => <span className={`rounded-full px-2 py-1 text-xs font-medium ${row.status === 'BOOKED' ? 'bg-blue-100 text-blue-700' : row.status === 'CHECKED_IN' ? 'bg-emerald-100 text-emerald-700' : row.status === 'CHECKED_OUT' ? 'bg-zinc-100 text-zinc-700' : 'bg-red-100 text-red-700'}`}>{row.status}</span> },
     { key: 'room', header: 'Kamar', render: (row) => row.room?.name ?? '-' },
     { key: 'id', header: 'Aksi', render: (row) => <div className="flex flex-wrap gap-2">{canUpdatePetHotel ? <button type="button" onClick={() => void handleCheckIn(row.id)} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs text-emerald-700">Check-in</button> : null}{canUpdatePetHotel ? <button type="button" onClick={() => void handleCheckOut(row.id)} className="rounded-lg border border-zinc-200 px-3 py-1 text-xs text-zinc-700">Check-out</button> : null}<button type="button" onClick={() => { setSelectedBookingId(row.id); void loadLogs(row.id); }} className="rounded-lg border border-zinc-200 px-3 py-1 text-xs text-zinc-700"><NotebookPen className="mr-1 inline h-3 w-3" />Catatan</button>{row.status === 'BOOKED' && canCreatePetHotel ? <button type="button" onClick={() => void handleCancel(row.id)} className="rounded-lg border border-red-200 bg-red-50 px-3 py-1 text-xs text-red-700">Batal</button> : null}{row.status !== 'CHECKED_OUT' && canDeletePetHotel ? <button type="button" onClick={() => void handleDeleteBooking(row.id)} className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1 text-xs text-rose-600">Hapus</button> : null}</div> },
@@ -365,7 +365,7 @@ export default function PetHotelPage() {
                 Reservasi
                 <select value={selectedBookingId} onChange={(e) => { setSelectedBookingId(e.target.value); void loadLogs(e.target.value); }} className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
                   <option value="">Pilih reservasi</option>
-                  {bookings.map((booking) => <option key={booking.id} value={booking.id}>{booking.pet?.name} — {booking.room?.name ?? 'Belum ada kamar'}</option>)}
+                  {bookings.map((booking) => <option key={booking.id} value={booking.id}>{booking.pets.map((pet) => pet.name).join(', ')} — {booking.room?.name ?? 'Belum ada kamar'}</option>)}
                 </select>
               </label>
               <label className="block text-sm text-zinc-600">
@@ -495,10 +495,10 @@ export default function PetHotelPage() {
 
           <label className="block text-sm text-zinc-600">
             Hewan
-            <select value={bookingForm.petId} onChange={(e) => setBookingForm({ ...bookingForm, petId: e.target.value })} required className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2">
-              <option value="">Pilih hewan</option>
+            <select multiple value={bookingForm.petIds} onChange={(e) => setBookingForm({ ...bookingForm, petIds: Array.from(e.target.selectedOptions, (option) => option.value) })} required className="mt-1 min-h-32 w-full rounded-lg border border-zinc-200 px-3 py-2">
               {pets.map((pet) => <option key={pet.id} value={pet.id}>{pet.name} — {pet.customer?.name ?? 'Tanpa pemilik'}</option>)}
             </select>
+            <span className="mt-1 text-xs text-zinc-500">Pilih satu atau lebih hewan untuk reservasi bersama.</span>
           </label>
 
           <label className="block text-sm text-zinc-600">

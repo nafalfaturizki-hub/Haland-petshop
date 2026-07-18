@@ -18,9 +18,85 @@ export type ModuleName =
   | 'customer-portal'
   | 'profile';
 
-export type PermissionAction = 'create' | 'read' | 'update' | 'delete' | 'approve' | 'cancel' | 'export' | 'print' | 'payment' | 'stock-adjustment';
+export type PermissionAction = 'create' | 'read' | 'update' | 'delete' | 'approve' | 'cancel' | 'export' | 'print' | 'payment' | 'stock-adjustment' | 'pricing' | 'bulk-import';
 
 const STAFF_ROLES: Role[] = ['OWNER', 'ADMIN_KLINIK', 'DOKTER'];
+const OWNER_ACTIONS: PermissionAction[] = ['create', 'read', 'update', 'delete', 'approve', 'cancel', 'export', 'payment', 'stock-adjustment'];
+
+const ROLE_PERMISSION_MATRIX: Record<Role, Record<ModuleName, PermissionAction[]>> = {
+  OWNER: {
+    dashboard: OWNER_ACTIONS,
+    customers: OWNER_ACTIONS,
+    pets: OWNER_ACTIONS,
+    appointments: OWNER_ACTIONS,
+    'medical-records': OWNER_ACTIONS,
+    procedures: OWNER_ACTIONS,
+    'pet-hotel': OWNER_ACTIONS,
+    petshop: ['create', 'read', 'update', 'delete', 'pricing', 'bulk-import', 'stock-adjustment', 'export', 'payment', 'approve', 'cancel'],
+    pos: ['create', 'read', 'update', 'delete', 'payment', 'print', 'export', 'approve', 'cancel', 'stock-adjustment'],
+    billing: ['create', 'read', 'update', 'delete', 'payment', 'print', 'export', 'approve', 'cancel', 'stock-adjustment'],
+    reports: OWNER_ACTIONS,
+    users: OWNER_ACTIONS,
+    settings: OWNER_ACTIONS,
+    notifications: OWNER_ACTIONS,
+    'customer-portal': OWNER_ACTIONS,
+    profile: OWNER_ACTIONS,
+  },
+  ADMIN_KLINIK: {
+    dashboard: ['read'],
+    customers: ['create', 'read', 'update'],
+    pets: ['create', 'read', 'update'],
+    appointments: ['create', 'read', 'update', 'approve', 'cancel'],
+    'medical-records': ['create', 'read', 'update'],
+    procedures: ['create', 'read', 'update'],
+    'pet-hotel': ['create', 'read', 'update', 'approve', 'cancel'],
+    petshop: ['create', 'read', 'update', 'stock-adjustment'],
+    pos: ['create', 'read', 'payment', 'print'],
+    billing: ['create', 'read', 'payment', 'print'],
+    reports: ['read', 'export'],
+    users: ['create', 'read', 'update', 'delete'],
+    settings: [],
+    notifications: ['read', 'update'],
+    'customer-portal': ['read'],
+    profile: ['read', 'update'],
+  },
+  DOKTER: {
+    dashboard: ['read'],
+    customers: ['read'],
+    pets: ['read'],
+    appointments: ['read', 'update'],
+    'medical-records': ['create', 'read', 'update'],
+    procedures: ['read'],
+    'pet-hotel': ['read'],
+    petshop: [],
+    pos: [],
+    billing: [],
+    reports: ['read'],
+    users: [],
+    settings: [],
+    notifications: ['read'],
+    'customer-portal': ['read'],
+    profile: ['read', 'update'],
+  },
+  CUSTOMER: {
+    dashboard: [],
+    customers: [],
+    pets: ['read'],
+    appointments: [],
+    'medical-records': [],
+    procedures: [],
+    'pet-hotel': ['create', 'read', 'update'],
+    petshop: [],
+    pos: [],
+    billing: ['read'],
+    reports: [],
+    users: [],
+    settings: [],
+    notifications: ['read'],
+    'customer-portal': ['read'],
+    profile: ['read'],
+  },
+};
 
 export function isStaffRole(role: string | undefined): role is Exclude<Role, 'CUSTOMER'> {
   return Boolean(role && STAFF_ROLES.includes(role as Role));
@@ -62,18 +138,7 @@ export function getRoleLabel(role: string | undefined) {
 }
 
 function isModuleAccessibleByRole(role: Role, module: ModuleName) {
-  switch (role) {
-    case 'OWNER':
-      return true;
-    case 'ADMIN_KLINIK':
-      return module !== 'settings';
-    case 'DOKTER':
-      return ['dashboard', 'customers', 'pets', 'appointments', 'medical-records', 'procedures', 'pet-hotel', 'reports', 'profile'].includes(module);
-    case 'CUSTOMER':
-      return ['profile', 'customer-portal'].includes(module);
-    default:
-      return false;
-  }
+  return Boolean(ROLE_PERMISSION_MATRIX[role][module]?.length);
 }
 
 export function canAccessModule(role: string | undefined, module: ModuleName) {
@@ -125,48 +190,8 @@ export function canPerformAction(role: string | undefined, module: ModuleName, a
   }
 
   const normalizedRole = role as Role;
-
-  if (normalizedRole === 'OWNER') {
-    return true;
-  }
-
-  if (normalizedRole === 'ADMIN_KLINIK') {
-    if (module === 'users') {
-      return ['create', 'read', 'update', 'delete'].includes(action);
-    }
-
-    return ['create', 'read', 'update', 'delete', 'approve', 'cancel', 'export', 'print', 'payment', 'stock-adjustment'].includes(action);
-  }
-
-  if (normalizedRole === 'DOKTER') {
-    if (module === 'medical-records') {
-      return ['create', 'read', 'update'].includes(action);
-    }
-
-    if (module === 'appointments') {
-      return ['read', 'update'].includes(action);
-    }
-
-    if (module === 'customers' || module === 'pets') {
-      return action === 'read';
-    }
-
-    if (module === 'pet-hotel' || module === 'reports' || module === 'profile') {
-      return action === 'read';
-    }
-
-    if (module === 'petshop' || module === 'pos' || module === 'billing' || module === 'procedures') {
-      return false;
-    }
-
-    return action === 'read';
-  }
-
-  if (normalizedRole === 'CUSTOMER') {
-    return action === 'read' && ['profile', 'customer-portal'].includes(module);
-  }
-
-  return false;
+  const allowedActions = ROLE_PERMISSION_MATRIX[normalizedRole]?.[module] ?? [];
+  return allowedActions.includes(action);
 }
 
 type EnforceActionPermissionInput = {
@@ -181,7 +206,19 @@ type EnforceActionPermissionInput = {
 export async function enforceActionPermission(input: EnforceActionPermissionInput) {
   const { role, actorId, module, action, denyMessage, logDenied } = input;
 
-  if (!role || !canPerformAction(role, module, action)) {
+  if (!role) {
+    if (logDenied) {
+      await logDenied({ role, actorId, module, action });
+    }
+
+    return {
+      allowed: false,
+      message: denyMessage ?? 'Anda tidak terautentikasi.',
+    } as const;
+  }
+
+  const allowed = canPerformAction(role, module, action);
+  if (!allowed) {
     if (logDenied) {
       await logDenied({ role, actorId, module, action });
     }

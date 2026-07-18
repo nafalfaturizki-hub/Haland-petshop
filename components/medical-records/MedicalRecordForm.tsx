@@ -1,8 +1,15 @@
 'use client';
 
-import { FileText } from 'lucide-react';
+import { FileText, Plus, Trash2 } from 'lucide-react';
 import { FormField } from '@/components/shared/form/FormField';
 import { TextAreaField } from '@/components/shared/form/TextAreaField';
+
+type StructuredItemInput = {
+  id: string;
+  name: string;
+  qty: string;
+  notes: string;
+};
 
 type MedicalRecordFormState = {
   appointmentId: string;
@@ -16,8 +23,8 @@ type MedicalRecordFormState = {
   heartRate: string;
   respiratoryRate: string;
   diagnosis: string;
-  treatment: string;
-  prescription: string;
+  treatmentItems: StructuredItemInput[];
+  prescriptionItems: StructuredItemInput[];
   labResult: string;
   notes: string;
   status: string;
@@ -38,14 +45,73 @@ type MedicalRecordFormProps = {
   canManage: boolean;
   canCreateRecord: boolean;
   canUpdateRecord: boolean;
-  onFieldChange: (field: keyof MedicalRecordFormState, value: string) => void;
+  onFieldChange: (field: keyof MedicalRecordFormState, value: string | StructuredItemInput[]) => void;
   onAttachmentChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onSubmit: (event: React.FormEvent) => void;
   onCancel: () => void;
 };
 
+function createEmptyStructuredItem(id: string): StructuredItemInput {
+  return { id, name: '', qty: '1', notes: '' };
+}
+
+function StructuredItemSection({
+  title,
+  description,
+  field,
+  items,
+  onFieldChange,
+}: {
+  title: string;
+  description: string;
+  field: 'treatmentItems' | 'prescriptionItems';
+  items: StructuredItemInput[];
+  onFieldChange: (field: 'treatmentItems' | 'prescriptionItems', value: StructuredItemInput[]) => void;
+}) {
+  function updateItem(index: number, updates: Partial<StructuredItemInput>) {
+    const nextItems = items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...updates } : item));
+    onFieldChange(field, nextItems);
+  }
+
+  function addItem() {
+    onFieldChange(field, [...items, createEmptyStructuredItem(`${field}-${Date.now()}-${items.length + 1}`)]);
+  }
+
+  function removeItem(index: number) {
+    const nextItems = items.filter((_, itemIndex) => itemIndex !== index);
+    onFieldChange(field, nextItems.length > 0 ? nextItems : [createEmptyStructuredItem(`${field}-empty`)]);
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border border-zinc-200 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium text-zinc-900">{title}</p>
+          <p className="text-xs text-zinc-500">{description}</p>
+        </div>
+        <button type="button" onClick={addItem} className="rounded-md border border-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700">
+          <span className="flex items-center gap-1"><Plus className="h-3.5 w-3.5" /> Tambah</span>
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {items.map((item, index) => (
+          <div key={item.id} className="grid gap-2 rounded-lg border border-zinc-200 p-3 md:grid-cols-[2fr_0.7fr_2fr_auto]">
+            <input value={item.name} onChange={(event) => updateItem(index, { name: event.target.value })} placeholder={field === 'treatmentItems' ? 'Nama tindakan' : 'Nama obat'} className="rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+            <input type="number" min="1" value={item.qty} onChange={(event) => updateItem(index, { qty: event.target.value })} className="rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+            <input value={item.notes} onChange={(event) => updateItem(index, { notes: event.target.value })} placeholder="Catatan" className="rounded-lg border border-zinc-200 px-3 py-2 text-sm" />
+            <button type="button" onClick={() => removeItem(index)} className="rounded-lg border border-rose-200 px-2 py-2 text-rose-600">
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function MedicalRecordForm({ appointments, form, editingId, submitting, canManage, canCreateRecord, canUpdateRecord, onFieldChange, onAttachmentChange, onSubmit, onCancel }: MedicalRecordFormProps) {
-  if (!canManage || !canCreateRecord && !canUpdateRecord) {
+  if (!canManage || (!canCreateRecord && !canUpdateRecord)) {
     return null;
   }
 
@@ -93,8 +159,10 @@ export function MedicalRecordForm({ appointments, form, editingId, submitting, c
       <TextAreaField label="Pemeriksaan fisik" value={form.physicalExam} onChange={(value) => onFieldChange('physicalExam', value)} />
       <TextAreaField label="Tanda vital" value={form.vitalSigns} onChange={(value) => onFieldChange('vitalSigns', value)} />
       <TextAreaField label="Diagnosis" value={form.diagnosis} onChange={(value) => onFieldChange('diagnosis', value)} required />
-      <TextAreaField label="Tindakan" value={form.treatment} onChange={(value) => onFieldChange('treatment', value)} rows={3} placeholder="Nama tindakan | qty | catatan" description="Format: Nama tindakan | 1 | catatan. Satu item per baris." />
-      <TextAreaField label="Resep" value={form.prescription} onChange={(value) => onFieldChange('prescription', value)} rows={3} placeholder="Nama obat | 1 | catatan" description="Format: Nama obat | 1 | catatan. Satu item per baris." />
+
+      <StructuredItemSection title="Tindakan" description="Catat tindakan yang dilakukan selama kunjungan." field="treatmentItems" items={form.treatmentItems} onFieldChange={(field, value) => onFieldChange(field, value)} />
+      <StructuredItemSection title="Resep" description="Tambahkan obat yang diberikan kepada pasien." field="prescriptionItems" items={form.prescriptionItems} onFieldChange={(field, value) => onFieldChange(field, value)} />
+
       <TextAreaField label="Hasil laboratorium" value={form.labResult} onChange={(value) => onFieldChange('labResult', value)} />
       <TextAreaField label="Catatan klinis" value={form.notes} onChange={(value) => onFieldChange('notes', value)} />
 
