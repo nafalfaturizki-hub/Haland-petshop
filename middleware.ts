@@ -78,7 +78,26 @@ export async function middleware(request: NextRequest) {
     incrementRateLimit(key);
   }
 
-  return proxy(request);
+  const response = await proxy(request);
+  return withSecurityHeaders(response);
+}
+
+const SECURITY_HEADERS: Record<string, string> = {
+  // A3: Content Security Policy to mitigate XSS injection.
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Strict-Transport-Security': 'max-age=63072000; includeSubDomains; preload',
+};
+
+function withSecurityHeaders(response: NextResponse): NextResponse {
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    response.headers.set(key, value);
+  }
+  return response;
 }
 
 const ROUTE_TO_MODULE: Record<string, string> = {

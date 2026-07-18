@@ -7,21 +7,40 @@ function createStableHash(value: string) {
   return (hash >>> 0).toString(16);
 }
 
-export function getAuthSecret() {
-  const explicitSecret = process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET;
-  if (explicitSecret?.trim()) {
-    return explicitSecret.trim();
+let cachedSecret: string | undefined;
+
+export function getAuthSecret(): string {
+  if (cachedSecret !== undefined) {
+    return cachedSecret;
+  }
+
+  const explicitSecret = (process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET)?.trim();
+  if (explicitSecret) {
+    cachedSecret = explicitSecret;
+    return cachedSecret;
+  }
+
+  // A1: In production, an explicit AUTH_SECRET is mandatory. Fail fast instead
+  // of silently falling back to a deterministic or dev secret that would
+  // invalidate all sessions and expose the app to JWT forgery.
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'FATAL: AUTH_SECRET is not set. Set AUTH_SECRET (or NEXTAUTH_SECRET) before starting in production.',
+    );
   }
 
   if (process.env.DATABASE_URL?.trim()) {
-    return createStableHash(process.env.DATABASE_URL.trim());
+    cachedSecret = createStableHash(process.env.DATABASE_URL.trim());
+    return cachedSecret;
   }
 
   if (process.env.VERCEL_GIT_COMMIT_SHA?.trim()) {
-    return createStableHash(process.env.VERCEL_GIT_COMMIT_SHA.trim());
+    cachedSecret = createStableHash(process.env.VERCEL_GIT_COMMIT_SHA.trim());
+    return cachedSecret;
   }
 
-  return 'next-auth-dev-secret';
+  cachedSecret = 'next-auth-dev-secret';
+  return cachedSecret;
 }
 
 export function getAuthBaseUrl(requestUrl?: string) {

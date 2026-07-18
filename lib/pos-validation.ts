@@ -137,6 +137,19 @@ export function validateBeforeCheckout(input: CheckoutValidationInput) {
     }
   }
 
+  // F6: Final total must be greater than zero. Reject over-discounted carts
+  // (e.g. discount that zeroes out or inverts the bill).
+  const finalTotals = calculateFinalTotal({
+    subtotal: input.subtotal,
+    discountType: input.discountType,
+    discountAmount: input.discountAmount,
+    taxRate: input.taxRate,
+  });
+
+  if (finalTotals.totalAmount <= 0) {
+    return { ok: false as const, message: 'Total tagihan harus lebih dari nol. Periksa kembali diskon yang diterapkan.' };
+  }
+
   if (input.stockByProductId) {
     const stockItems = normalizedItems.filter((item): item is CheckoutItem & { productId: string } => Boolean(item.productId));
     const stockValidation = validateStockAvailabilityForCheckout(

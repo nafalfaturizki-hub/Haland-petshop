@@ -259,13 +259,21 @@ async function main() {
   console.log('');
   console.log('✨ Seeding completed successfully!');
   console.log('');
-  console.log('📝 Default User Credentials:');
-  console.log(`   Owner    - Username: owner     | PIN: ${defaultPin}`);
-  console.log(`   Admin    - Username: admin     | PIN: ${defaultPin}`);
-  console.log(`   Doctor   - Username: dr_budi   | PIN: ${defaultPin}`);
-  console.log(`   Customer - Username: customer  | PIN: ${defaultPin}`);
-  console.log('');
-  console.log('⚠️  GANTI PIN SETELAH PERTAMA KALI LOGIN');
+
+  // A5: Never print default PINs in production deployment logs — they leak
+  // credentials into Vercel build output. Local dev can still show them.
+  if (process.env.NODE_ENV === 'production' || process.env.VERCEL === '1') {
+    console.log('📝 Default accounts created. Credentials are intentionally omitted from production logs.');
+    console.log('⚠️  Ganti PIN setiap akun setelah pertama kali login.');
+  } else {
+    console.log('📝 Default User Credentials:');
+    console.log(`   Owner    - Username: owner     | PIN: ${defaultPin}`);
+    console.log(`   Admin    - Username: admin     | PIN: ${defaultPin}`);
+    console.log(`   Doctor   - Username: dr_budi   | PIN: ${defaultPin}`);
+    console.log(`   Customer - Username: customer  | PIN: ${defaultPin}`);
+    console.log('');
+    console.log('⚠️  GANTI PIN SETELAH PERTAMA KALI LOGIN');
+  }
 }
 
 main()

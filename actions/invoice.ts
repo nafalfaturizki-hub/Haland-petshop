@@ -337,8 +337,9 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
   const taxAmount = roundCurrency(taxableAmount * (taxRate / 100));
   const totalAmount = roundCurrency(taxableAmount + taxAmount);
 
-  if (totalAmount < 0) {
-    return { success: false, message: 'Nilai tagihan tidak valid.' };
+  if (totalAmount <= 0) {
+    // F6: Prevent invoices with zero/negative totals (e.g. over-discounted).
+    return { success: false, message: 'Total tagihan harus lebih dari nol. Periksa kembali diskon yang diterapkan.' };
   }
 
   const invoiceNumber = await generateInvoiceNumber();

@@ -130,8 +130,17 @@ model Customer {
   medicalRecords MedicalRecord[]
   invoices       Invoice[]
 
+  // B2: Enforce unique email/phone where provided. In PostgreSQL, nullable
+  // columns in a unique constraint allow multiple NULLs, so this does not
+  // collide for customers without an email/phone.
+  @@unique([email])
+  @@unique([phone])
+  // B3: Guest customers are de-duplicated by name. A separate single guest
+  // record is ensured at the application layer (getOrCreateGuestCustomer).
   @@unique([name, isGuest])
   @@index([isGuest])
+  @@index([email])
+  @@index([phone])
 }
 
 model Pet {
@@ -349,6 +358,7 @@ model Product {
   @@index([categoryId])
   @@index([supplierId])
   @@index([isArchived])
+  @@index([name])
 }
 
 model PriceChangeLog {
@@ -428,6 +438,8 @@ model Invoice {
 
   @@index([customerId, status])
   @@index([date])
+  @@index([petId])
+  @@index([invoiceNumber])
 }
 
 model InvoiceItem {

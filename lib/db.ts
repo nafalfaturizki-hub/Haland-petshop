@@ -19,8 +19,16 @@ export async function createAuditLog(userId: string, action: string, entity: str
         description,
       },
     });
-  } catch {
-    // Audit log failures should not block operations
+  } catch (error) {
+    // A15: Audit log failures must be surfaced (not silently swallowed) so
+    // security-relevant gaps are visible in monitoring instead of hidden.
+    console.error('[audit] Failed to write audit log', {
+      userId,
+      action,
+      entity,
+      entityId,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
