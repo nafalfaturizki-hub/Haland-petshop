@@ -88,7 +88,8 @@ function runBuildSteps() {
 
   const commands = [
     ['prisma', ['generate']],
-    ['prisma', ['migrate', 'deploy']],
+    // Skip migrations during build - they're handled by Vercel's Edge Runtime middleware or separate commands
+    // ['prisma', ['migrate', 'deploy']],
     ['next', ['build']],
   ];
 

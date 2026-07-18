@@ -22,5 +22,6 @@
     }
   ],
   "buildCommand": "npm run build",
+  "postBuildCommand": "node scripts/post-deploy.mjs",
   "devCommand": "npm run dev"
 }
