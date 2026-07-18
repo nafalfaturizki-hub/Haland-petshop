@@ -98,6 +98,16 @@ async function createMedicalRecordInvoice(tx: Prisma.TransactionClient, record: 
 
   const subtotal = roundCurrency(invoiceItems.reduce((sum, item) => sum + item.subtotal, 0));
   const invoiceNumber = await generateInvoiceNumber();
+  
+  // Validate product stock availability for medications (OBAT items)
+  const productItems = invoiceItems.filter((item) => item.type === 'OBAT' && item.productId);
+  for (const item of productItems) {
+    const product = await tx.product.findUnique({ where: { id: item.productId as string } });
+    if (!product || product.stock < item.qty) {
+      throw new Error(`Stok produk ${item.description} tidak mencukupi untuk invoice. Tersedia: ${product?.stock ?? 0}, diminta: ${item.qty}.`);
+    }
+  }
+
   const invoice = await tx.invoice.create({
     data: {
       customerId: record.customerId,
@@ -128,6 +138,24 @@ async function createMedicalRecordInvoice(tx: Prisma.TransactionClient, record: 
       },
     },
   });
+
+  // Deduct product stock for medications (OBAT items)
+  for (const item of productItems) {
+    await tx.product.update({
+      where: { id: item.productId as string },
+      data: { stock: { decrement: item.qty } },
+    });
+
+    // Record stock movement
+    await tx.stockMovement.create({
+      data: {
+        productId: item.productId as string,
+        type: 'OUT',
+        quantity: item.qty,
+        note: `Obat untuk rekam medis ${record.recordNumber} - Invoice ${invoiceNumber}`,
+      },
+    });
+  }
 
   return invoice;
 }
