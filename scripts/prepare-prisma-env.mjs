@@ -60,9 +60,11 @@ function writeRuntimeEnvFile(env) {
   const lines = [];
   const databaseUrl = env.DATABASE_URL?.trim();
   const nextAuthSecret = (process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? '').trim();
-  // During build, if no secret is provided, generate a temporary one
-  // In production (Vercel), AUTH_SECRET is always set via environment variables
-  const buildTimeSecret = nextAuthSecret || (process.env.NODE_ENV === 'production' ? '' : 'build-time-temporary-secret-do-not-use-in-production');
+  // During build, if no secret is provided, generate a temporary one.
+  // At runtime, Vercel env vars override .env.local.
+  // During build, always generate a temporary secret if the real one isn't set yet.
+  // In Vercel, AUTH_SECRET might not be set at build time but will be available at runtime.
+  const buildTimeSecret = nextAuthSecret || 'build-time-temporary-secret-do-not-use-in-production';
   const nextAuthUrl = (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')).trim();
 
   if (databaseUrl) {
