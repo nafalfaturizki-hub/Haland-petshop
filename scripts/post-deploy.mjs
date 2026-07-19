@@ -6,7 +6,7 @@ import { loadPrismaEnvironment } from './prepare-prisma-env.mjs';
 /**
  * Post-deployment script for Vercel
  * Runs database migrations after the build completes
- * Add to vercel.json: "postBuildCommand": "node scripts/post-deploy.mjs"
+ * Integrated via buildCommand in vercel.json: "buildCommand": "npm run build && node scripts/post-deploy.mjs"
  */
 
 console.log('[Post-Deploy] Starting post-deployment tasks...');

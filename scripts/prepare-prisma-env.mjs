@@ -62,8 +62,6 @@ function writeRuntimeEnvFile(env) {
   const nextAuthSecret = (process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? '').trim();
   // During build, if no secret is provided, generate a temporary one.
   // At runtime, Vercel env vars override .env.local.
-  // During build, always generate a temporary secret if the real one isn't set yet.
-  // In Vercel, AUTH_SECRET might not be set at build time but will be available at runtime.
   const buildTimeSecret = nextAuthSecret || 'build-time-temporary-secret-do-not-use-in-production';
   const nextAuthUrl = (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')).trim();
 
@@ -115,7 +113,7 @@ function runBuildSteps() {
     process.exit(buildResult.status ?? 1);
   }
 
-  if (!process.env.SKIP_MIGRATIONS && !process.env.VERCEL && childEnv.DATABASE_URL) {
+  if (!process.env.SKIP_MIGRATIONS && childEnv.DATABASE_URL) {
     console.log('[Build] Running database migrations...');
     const migrateResult = spawnSync('prisma', ['migrate', 'deploy'], {
       cwd: process.cwd(),
