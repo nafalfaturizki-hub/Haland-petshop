@@ -63,7 +63,7 @@ export default function LoginPage() {
               value={username}
               onChange={(event) => setUsername(event.target.value.toLowerCase())}
               className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 outline-none ring-0"
-              placeholder="contoh: owner"
+              placeholder="contoh: haland.petcare"
               autoComplete="username"
               required
             />
