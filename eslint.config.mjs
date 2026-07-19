@@ -5,7 +5,7 @@ import nextPlugin from '@next/eslint-plugin-next';
 
 export default [
   {
-    ignores: ['.next/**', 'node_modules/**', 'playwright-report/**', 'test-results/**', 'tests/**', 'e2e/**', 'scripts/**', 'prisma/**'],
+    ignores: ['.next/**', 'node_modules/**', 'playwright-report/**', 'test-results/**', 'tests/**', 'e2e/**', 'scripts/**', 'prisma/**', '.kilo/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
