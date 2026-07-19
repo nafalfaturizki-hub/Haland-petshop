@@ -7,6 +7,41 @@ function createStableHash(value: string) {
   return (hash >>> 0).toString(16);
 }
 
+function isPlaceholderUrl(url: string): boolean {
+  // Detect common placeholder patterns that cause Invalid URL errors at runtime.
+  // See Vercel error: "TypeError: Invalid URL" with placeholder AUTH_URL values.
+  const trimmed = url.trim().toLowerCase();
+  return (
+    trimmed.includes('placeholder') ||
+    trimmed.includes('your-') ||
+    trimmed.includes('yourdomain') ||
+    trimmed.includes('where nextauth') ||
+    trimmed === '' ||
+    trimmed === 'http://localhost:3000'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CRITICAL: Sanitize AUTH_URL / NEXTAUTH_URL before NextAuth reads them.
+// NextAuth internally calls `new URL(process.env.NEXTAUTH_URL)` at
+// initialization. If the env var contains a placeholder value (e.g. "URL where
+// NextAuth is running (production domain)") it throws TypeError: Invalid URL
+// and crashes every request handler that imports lib/auth.ts.
+//
+// This module is imported before next-auth in lib/auth.ts, so we can clean
+// the env var before NextAuth ever reads it.
+// ---------------------------------------------------------------------------
+const authUrl = process.env.AUTH_URL?.trim() ?? '';
+const nextAuthUrl = process.env.NEXTAUTH_URL?.trim() ?? '';
+
+if (authUrl && isPlaceholderUrl(authUrl)) {
+  delete process.env.AUTH_URL;
+}
+if (nextAuthUrl && isPlaceholderUrl(nextAuthUrl)) {
+  delete process.env.NEXTAUTH_URL;
+  // NextAuth reads NEXTAUTH_URL; deleting it lets it fall back to VERCEL_URL.
+}
+
 let cachedSecret: string | undefined;
 
 export function getAuthSecret(): string {
@@ -41,34 +76,4 @@ export function getAuthSecret(): string {
 
   cachedSecret = 'next-auth-dev-secret';
   return cachedSecret;
-}
-
-function isPlaceholderUrl(url: string): boolean {
-  // Detect common placeholder patterns that cause Invalid URL errors at runtime
-  const trimmed = url.trim().toLowerCase();
-  return (
-    trimmed.includes('placeholder') ||
-    trimmed.includes('your-') ||
-    trimmed.includes('yourdomain') ||
-    trimmed.includes('where nextauth') ||
-    trimmed === '' ||
-    trimmed === 'http://localhost:3000'
-  );
-}
-
-export function getAuthBaseUrl(requestUrl?: string) {
-  const explicitUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
-  if (explicitUrl?.trim() && !isPlaceholderUrl(explicitUrl)) {
-    return explicitUrl.trim();
-  }
-
-  if (process.env.VERCEL_URL?.trim()) {
-    return `https://${process.env.VERCEL_URL.trim()}`;
-  }
-
-  if (requestUrl) {
-    return requestUrl;
-  }
-
-  return 'http://localhost:3000';
 }

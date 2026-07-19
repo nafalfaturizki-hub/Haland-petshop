@@ -37,6 +37,16 @@ export function validateEnvironment(): EnvValidationResult {
     }
   }
 
+  // Detect placeholder AUTH_URL/NEXTAUTH_URL values that crash NextAuth at runtime
+  // with "TypeError: Invalid URL" (see lib/auth-env.ts for sanitization logic).
+  const checkPlaceholder = (key: string, value: string | undefined) => {
+    if (value && (value.includes('placeholder') || value.includes('your-') || value.includes('yourdomain') || value.includes('where nextauth'))) {
+      warnings.push(`${key} contains a placeholder value ("${value.slice(0, 60)}"). Remove it from Vercel env vars or set the actual domain.`);
+    }
+  };
+  checkPlaceholder('AUTH_URL', process.env.AUTH_URL);
+  checkPlaceholder('NEXTAUTH_URL', process.env.NEXTAUTH_URL);
+
   const ok = missing.length === 0;
 
   if (!ok && process.env.NODE_ENV === 'production') {
