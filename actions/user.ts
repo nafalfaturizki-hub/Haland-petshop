@@ -6,6 +6,7 @@ import { auth } from '@/lib/auth';
 import { createUser as createUserInternal, resetPin as resetPinInternal, unlockUser as unlockUserInternal } from '@/lib/user-management';
 import { prisma } from '@/lib/db';
 import { canManageTargetRole, canPerformAction, type Role } from '@/lib/permissions';
+import { logger } from '@/lib/logger';
 import { getActorRole, normalizeUsername } from '@/lib/utils';
 
 const userInputSchema = z.object({
@@ -136,7 +137,7 @@ export async function updateUser(input: z.infer<typeof updateUserSchema>) {
     revalidatePath('/users');
     return { success: true, userId: updated.id };
   } catch (error) {
-    console.error('Failed to update user', error);
+    logger.error('Failed to update user', { error: error instanceof Error ? error.message : String(error) });
     return { success: false, message: 'Gagal memperbarui akun.' };
   }
 }
@@ -200,7 +201,7 @@ export async function deleteUser(input: z.infer<typeof deleteUserSchema>) {
     revalidatePath('/users');
     return { success: true, userId: updated.id };
   } catch (error) {
-    console.error('Failed to deactivate user', error);
+    logger.error('Failed to deactivate user', { error: error instanceof Error ? error.message : String(error) });
     return { success: false, message: 'Gagal menonaktifkan akun.' };
   }
 }
@@ -260,7 +261,7 @@ export async function activateUser(input: z.infer<typeof activateUserSchema>) {
     revalidatePath('/users');
     return { success: true, userId: updated.id };
   } catch (error) {
-    console.error('Failed to activate user', error);
+    logger.error('Failed to activate user', { error: error instanceof Error ? error.message : String(error) });
     return { success: false, message: 'Gagal mengaktifkan akun.' };
   }
 }

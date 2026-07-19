@@ -29,7 +29,6 @@ Buka: http://localhost:3000
 
 ### 3. Explore App
 - Dashboard, Customers, Pets, Appointments, Pet Hotel, Inventory, Billing
-- 
 ---
 
 ## 🛠️ Tech Stack

@@ -172,7 +172,7 @@ model PetWeightLog {
   weight Float
   date   DateTime @default(now())
 
-  pet Pet @relation(fields: [petId], references: [id])
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
 }
 
 model PetVaccineRecord {
@@ -182,7 +182,7 @@ model PetVaccineRecord {
   date        DateTime  @default(now())
   nextDueDate DateTime?
 
-  pet Pet @relation(fields: [petId], references: [id])
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
 }
 
 model PetDiseaseRecord {
@@ -192,7 +192,7 @@ model PetDiseaseRecord {
   note        String?
   date        DateTime @default(now())
 
-  pet Pet @relation(fields: [petId], references: [id])
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
 }
 
 model PetAllergy {
@@ -201,7 +201,7 @@ model PetAllergy {
   allergen String
   note     String?
 
-  pet Pet @relation(fields: [petId], references: [id])
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
 }
 
 model Appointment {
@@ -251,7 +251,7 @@ model MedicalRecord {
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
-  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   customer    Customer    @relation(fields: [customerId], references: [id])
   pet         Pet         @relation(fields: [petId], references: [id])
   doctor      User        @relation("DoctorMedicalRecords", fields: [doctorId], references: [id])
@@ -290,7 +290,7 @@ model PetHotelBookingPet {
   petId     String
   createdAt DateTime @default(now())
 
-  booking PetHotelBooking @relation(fields: [bookingId], references: [id])
+  booking PetHotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
   pet     Pet             @relation(fields: [petId], references: [id])
 
   @@unique([bookingId, petId])
@@ -314,14 +314,14 @@ model PetHotelRoom {
 }
 
 model PetHotelLog {
-  id          String          @id @default(cuid())
-  bookingId   String
+  id        String          @id @default(cuid())
+  bookingId String
   type        PetHotelLogType
   description String
   photo       String?
   date        DateTime        @default(now())
 
-  booking PetHotelBooking @relation(fields: [bookingId], references: [id])
+  booking PetHotelBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 }
 
 model Product {
@@ -410,7 +410,7 @@ model StockMovement {
   note      String?
   date      DateTime          @default(now())
 
-  product Product @relation(fields: [productId], references: [id])
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
 model Invoice {
@@ -455,7 +455,7 @@ model InvoiceItem {
   subtotal          Float           @default(0)
   createdAt         DateTime        @default(now())
 
-  invoice         Invoice          @relation(fields: [invoiceId], references: [id])
+  invoice         Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   product         Product?         @relation(fields: [productId], references: [id])
   procedure       Procedure?       @relation(fields: [procedureId], references: [id])
   petHotelBooking PetHotelBooking? @relation(fields: [petHotelBookingId], references: [id])
@@ -468,7 +468,7 @@ model Payment {
   amount    Float
   date      DateTime      @default(now())
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id])
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([invoiceId])
 }
@@ -482,7 +482,7 @@ model Notification {
   type    String?
   date    DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model AuditLog {

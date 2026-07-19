@@ -7,6 +7,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { canPerformAction } from '@/lib/permissions';
 import { getActorRole } from '@/lib/utils';
+import { sanitizeText } from '@/lib/sanitize';
 
 const customerSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -158,10 +159,10 @@ export async function createCustomer(input: z.infer<typeof customerSchema>) {
 
   const customer = await prisma.customer.create({
     data: {
-      name: parsed.data.name,
-      phone: parsed.data.phone || null,
-      address: parsed.data.address || null,
-      notes: parsed.data.notes || null,
+      name: sanitizeText(parsed.data.name, 200),
+      phone: sanitizeText(parsed.data.phone ?? '', 50) || null,
+      address: sanitizeText(parsed.data.address ?? '', 500) || null,
+      notes: sanitizeText(parsed.data.notes ?? '', 1000) || null,
       userId: createdUserId,
     },
   });
@@ -200,10 +201,10 @@ export async function updateCustomer(input: z.infer<typeof updateCustomerSchema>
   const customer = await prisma.customer.update({
     where: { id: parsed.data.id },
     data: {
-      name: parsed.data.name,
-      phone: parsed.data.phone || null,
-      address: parsed.data.address || null,
-      notes: parsed.data.notes || null,
+      name: sanitizeText(parsed.data.name, 200),
+      phone: sanitizeText(parsed.data.phone ?? '', 50) || null,
+      address: sanitizeText(parsed.data.address ?? '', 500) || null,
+      notes: sanitizeText(parsed.data.notes ?? '', 1000) || null,
     },
   });
 

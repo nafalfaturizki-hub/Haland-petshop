@@ -7,7 +7,7 @@ import { auth } from '@/lib/auth';
 import { sanitizeText } from '@/lib/sanitize';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { getAuthorizedRoutes } from '@/lib/permission-matrix';
-import { getActorRole, getActorId, roundCurrency, normalizeOptionalText } from '@/lib/utils';
+import { getActorRole, getActorId, roundCurrency } from '@/lib/utils';
 import { generateInvoiceNumber } from '@/lib/numbering';
 import { deductProductStock, restoreProductStock, validateStockAvailability } from '@/lib/inventory-helpers';
 import { notifyUser } from '@/lib/notifications-helper';
@@ -46,6 +46,7 @@ const recordPaymentSchema = z.object({
 const cancelInvoiceSchema = z.object({ id: z.string().min(1) });
 
 
+/** Fetch lookup data (customers, products, procedures) for invoice create form. */
 export async function getInvoiceLookups() {
   const session = await auth();
   const actorRole = getActorRole(session);
@@ -84,7 +85,7 @@ export async function getInvoiceLookups() {
   return { success: true, customers, appointments, medicalRecords, doctors, procedures };
 }
 
-export async function listInvoices() {
+export async function listInvoices(page = 1, pageSize = 50) {
   const session = await auth();
   const actorRole = getActorRole(session);
 
@@ -92,16 +93,23 @@ export async function listInvoices() {
     return { success: false, message: 'Anda tidak berwenang melihat invoice.' };
   }
 
-  const invoices = await prisma.invoice.findMany({
-    orderBy: { date: 'desc' },
-    include: {
-      customer: { select: { id: true, name: true } },
-      items: true,
-      payments: true,
-    },
-  });
+  const skip = (page - 1) * pageSize;
 
-  return { success: true, invoices };
+  const [invoices, total] = await Promise.all([
+    prisma.invoice.findMany({
+      orderBy: { date: 'desc' },
+      skip,
+      take: pageSize,
+      include: {
+        customer: { select: { id: true, name: true } },
+        items: true,
+        payments: true,
+      },
+    }),
+    prisma.invoice.count(),
+  ]);
+
+  return { success: true, invoices, total, page, pageSize };
 }
 
 export async function getInvoiceById(id: string) {
@@ -128,6 +136,7 @@ export async function getInvoiceById(id: string) {
   return { success: true, invoice };
 }
 
+/** Create invoice with validation, stock deduction, and atomic transaction. Retries on invoice number conflict. */
 export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) {
   const session = await auth();
   const actorRole = getActorRole(session);
@@ -378,7 +387,7 @@ export async function createInvoice(input: z.infer<typeof createInvoiceSchema>) 
             taxRate,
             taxAmount,
             totalAmount,
-            notes: sanitizeText(parsed.data.notes, 1000),
+            notes: sanitizeText(parsed.data.notes ?? '', 1000),
             createdById: actorId,
             items: {
               create: invoiceItems.map((item) => ({
@@ -465,6 +474,7 @@ description: sanitizeText(item.description, 200),
   return { success: true, invoice };
 }
 
+/** Record a payment against an invoice. Uses atomic transaction to prevent overpayment race conditions. */
 export async function recordInvoicePayment(input: z.infer<typeof recordPaymentSchema>) {
   const session = await auth();
   const actorRole = getActorRole(session);

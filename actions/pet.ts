@@ -6,6 +6,7 @@ import { auth } from '@/lib/auth';
 import { prisma, getCustomerForSession } from '@/lib/db';
 import { canPerformAction } from '@/lib/permissions';
 import { getActorRole } from '@/lib/utils';
+import { sanitizeText } from '@/lib/sanitize';
 
 const petSchema = z.object({
   customerId: z.string().trim().min(1, 'Pilih pemilik terlebih dahulu.'),
@@ -168,9 +169,9 @@ export async function createPet(input: z.infer<typeof petSchema>) {
   const pet = await prisma.pet.create({
     data: {
       customerId: parsed.data.customerId,
-      name: parsed.data.name,
-      species: parsed.data.species,
-      breed: parsed.data.breed || null,
+      name: sanitizeText(parsed.data.name, 100),
+      species: sanitizeText(parsed.data.species, 50),
+      breed: sanitizeText(parsed.data.breed ?? '', 100) || null,
       birthDate,
       gender: parsed.data.gender || null,
       photo: parsed.data.photo || null,
@@ -225,9 +226,9 @@ export async function updatePet(input: z.infer<typeof updatePetSchema>) {
     where: { id: parsed.data.id },
     data: {
       customerId: parsed.data.customerId,
-      name: parsed.data.name,
-      species: parsed.data.species,
-      breed: parsed.data.breed || null,
+      name: sanitizeText(parsed.data.name, 100),
+      species: sanitizeText(parsed.data.species, 50),
+      breed: sanitizeText(parsed.data.breed ?? '', 100) || null,
       birthDate,
       gender: parsed.data.gender || null,
       photo: parsed.data.photo || null,

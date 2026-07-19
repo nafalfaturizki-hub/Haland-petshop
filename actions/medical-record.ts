@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma, createAuditLog, getCustomerForSession } from '@/lib/db';
 import { parseStructuredItems, serializeStructuredItems } from '@/lib/medical-record-utils';
+import { sanitizeText } from '@/lib/sanitize';
 import { getActorRole, getActorId, normalizeOptionalText, normalizeOptionalNumber } from '@/lib/utils';
 import { generateMedicalRecordNumber, generateInvoiceNumber } from '@/lib/numbering';
 import { notifyUser } from '@/lib/notifications-helper';
@@ -243,7 +244,7 @@ export async function listMedicalRecordOptions() {
   return { success: true, appointments };
 }
 
-export async function listMedicalRecords() {
+export async function listMedicalRecords(page = 1, pageSize = 50) {
   const session = await auth();
   const actorRole = getActorRole(session);
   const actorId = getActorId(session);
@@ -252,24 +253,32 @@ export async function listMedicalRecords() {
     return { success: false, message: 'Tidak terautentikasi.' };
   }
 
+  const skip = (page - 1) * pageSize;
+
   if (actorRole === 'CUSTOMER') {
     const customer = await getCustomerForSession(actorId);
     if (!customer) {
-      return { success: true, records: [] };
+      return { success: true, records: [], total: 0, page, pageSize };
     }
 
-    const records = await prisma.medicalRecord.findMany({
-      where: { customerId: customer.id },
-      orderBy: { date: 'desc' },
-      include: {
-        appointment: { select: { id: true, date: true, status: true } },
-        customer: { select: { id: true, name: true } },
-        pet: { select: { id: true, name: true, species: true } },
-        doctor: { select: { id: true, name: true } },
-      },
-    });
+    const where = { customerId: customer.id };
+    const [records, total] = await Promise.all([
+      prisma.medicalRecord.findMany({
+        where,
+        orderBy: { date: 'desc' },
+        skip,
+        take: pageSize,
+        include: {
+          appointment: { select: { id: true, date: true, status: true } },
+          customer: { select: { id: true, name: true } },
+          pet: { select: { id: true, name: true, species: true } },
+          doctor: { select: { id: true, name: true } },
+        },
+      }),
+      prisma.medicalRecord.count({ where }),
+    ]);
 
-    return { success: true, records };
+    return { success: true, records, total, page, pageSize };
   }
 
   if (!getAuthorizedRoutes(actorRole).includes('medical-records')) {
@@ -278,18 +287,23 @@ export async function listMedicalRecords() {
 
   const where = actorRole === 'DOKTER' ? { doctorId: actorId } : undefined;
 
-  const records = await prisma.medicalRecord.findMany({
-    where,
-    orderBy: { date: 'desc' },
-    include: {
-      appointment: { select: { id: true, date: true, status: true } },
-      customer: { select: { id: true, name: true } },
-      pet: { select: { id: true, name: true, species: true } },
-      doctor: { select: { id: true, name: true } },
-    },
-  });
+  const [records, total] = await Promise.all([
+    prisma.medicalRecord.findMany({
+      where,
+      orderBy: { date: 'desc' },
+      skip,
+      take: pageSize,
+      include: {
+        appointment: { select: { id: true, date: true, status: true } },
+        customer: { select: { id: true, name: true } },
+        pet: { select: { id: true, name: true, species: true } },
+        doctor: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.medicalRecord.count({ where }),
+  ]);
 
-  return { success: true, records };
+  return { success: true, records, total, page, pageSize };
 }
 
 export async function createMedicalRecord(input: z.infer<typeof medicalRecordSchema>) {
@@ -357,19 +371,19 @@ export async function createMedicalRecord(input: z.infer<typeof medicalRecordSch
         petId: appointment.petId,
         doctorId: actorId,
         date: new Date(parsed.data.date),
-        chiefComplaint: normalizeOptionalText(parsed.data.chiefComplaint),
-        history: normalizeOptionalText(parsed.data.history),
-        physicalExam: normalizeOptionalText(parsed.data.physicalExam),
-        vitalSigns: normalizeOptionalText(parsed.data.vitalSigns),
+        chiefComplaint: sanitizeText(parsed.data.chiefComplaint ?? '', 2000),
+        history: sanitizeText(parsed.data.history ?? '', 2000),
+        physicalExam: sanitizeText(parsed.data.physicalExam ?? '', 2000),
+        vitalSigns: sanitizeText(parsed.data.vitalSigns ?? '', 2000),
         weight: normalizeOptionalNumber(parsed.data.weight as string | undefined),
         temperature: normalizeOptionalNumber(parsed.data.temperature as string | undefined),
         heartRate: normalizeOptionalNumber(parsed.data.heartRate as string | undefined) ? Math.round(Number(normalizeOptionalNumber(parsed.data.heartRate as string | undefined))) : null,
         respiratoryRate: normalizeOptionalNumber(parsed.data.respiratoryRate as string | undefined) ? Math.round(Number(normalizeOptionalNumber(parsed.data.respiratoryRate as string | undefined))) : null,
-        diagnosis: normalizeOptionalText(parsed.data.diagnosis),
+        diagnosis: sanitizeText(parsed.data.diagnosis ?? '', 2000),
         treatment: serializeMedicalRecordItems(parsed.data.treatment),
         prescription: serializeMedicalRecordItems(parsed.data.prescription),
-        labResult: normalizeOptionalText(parsed.data.labResult),
-        notes: normalizeOptionalText(parsed.data.notes),
+        labResult: sanitizeText(parsed.data.labResult ?? '', 2000),
+        notes: sanitizeText(parsed.data.notes ?? '', 2000),
         status: parsed.data.status ?? 'COMPLETED',
         attachments: attachmentValidation.attachments ? JSON.stringify(attachmentValidation.attachments) : null,
       },
@@ -461,19 +475,19 @@ export async function updateMedicalRecord(input: z.infer<typeof updateMedicalRec
       where: { id: parsed.data.id },
       data: {
         date: new Date(parsed.data.date),
-        chiefComplaint: normalizeOptionalText(parsed.data.chiefComplaint),
-        history: normalizeOptionalText(parsed.data.history),
-        physicalExam: normalizeOptionalText(parsed.data.physicalExam),
-        vitalSigns: normalizeOptionalText(parsed.data.vitalSigns),
+        chiefComplaint: sanitizeText(parsed.data.chiefComplaint ?? '', 2000),
+        history: sanitizeText(parsed.data.history ?? '', 2000),
+        physicalExam: sanitizeText(parsed.data.physicalExam ?? '', 2000),
+        vitalSigns: sanitizeText(parsed.data.vitalSigns ?? '', 2000),
         weight: normalizeOptionalNumber(parsed.data.weight as string | undefined),
         temperature: normalizeOptionalNumber(parsed.data.temperature as string | undefined),
         heartRate: normalizeOptionalNumber(parsed.data.heartRate as string | undefined) ? Math.round(Number(normalizeOptionalNumber(parsed.data.heartRate as string | undefined))) : null,
         respiratoryRate: normalizeOptionalNumber(parsed.data.respiratoryRate as string | undefined) ? Math.round(Number(normalizeOptionalNumber(parsed.data.respiratoryRate as string | undefined))) : null,
-        diagnosis: normalizeOptionalText(parsed.data.diagnosis),
+        diagnosis: sanitizeText(parsed.data.diagnosis ?? '', 2000),
         treatment: serializeMedicalRecordItems(parsed.data.treatment),
         prescription: serializeMedicalRecordItems(parsed.data.prescription),
-        labResult: normalizeOptionalText(parsed.data.labResult),
-        notes: normalizeOptionalText(parsed.data.notes),
+        labResult: sanitizeText(parsed.data.labResult ?? '', 2000),
+        notes: sanitizeText(parsed.data.notes ?? '', 2000),
         status: parsed.data.status ?? existing.status,
         attachments: attachmentValidation.attachments ? JSON.stringify(attachmentValidation.attachments) : null,
         version: existing.version + 1,

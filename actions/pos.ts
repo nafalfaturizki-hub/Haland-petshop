@@ -7,6 +7,7 @@ import { auth } from '@/lib/auth';
 import { prisma, getOrCreateGuestCustomer } from '@/lib/db';
 import { canPerformAction, enforceActionPermission, getPermissionDeniedAuditDescription } from '@/lib/permissions';
 import { getAuthorizedRoutes } from '@/lib/permission-matrix';
+import { sanitizeText } from '@/lib/sanitize';
 import { getPaymentStatus, roundCurrency, validatePosCheckout } from '@/lib/pos';
 import { calculateFinalTotal, posCheckoutPayloadSchema, validateBeforeCheckout, validateDiscount } from '@/lib/pos-validation';
 import { getActorRole } from '@/lib/utils';
@@ -160,6 +161,7 @@ export async function searchProducts(input: z.infer<typeof productSearchSchema>)
   return result;
 }
 
+/** Validate a POS sale: permission, stock, price, discount. Returns validation result or parsed data for createPosSale. */
 export async function validatePosSale(input: z.infer<typeof createPosSaleSchema>) {
   const session = await auth();
   const actorRole = getActorRole(session);
@@ -220,9 +222,20 @@ export async function validatePosSale(input: z.infer<typeof createPosSaleSchema>
   const stockByProductId = Object.fromEntries(
     (await prisma.product.findMany({
       where: { id: { in: parsed.data.items.map((item) => item.productId) } },
-      select: { id: true, stock: true },
-    })).map((product) => [product.id, product.stock]),
+      select: { id: true, stock: true, sellPrice: true },
+    })).map((product) => [product.id, { stock: product.stock, sellPrice: product.sellPrice }]),
   );
+
+  // Validate price matches database sellPrice
+  for (const item of parsed.data.items) {
+    const productInfo = stockByProductId[item.productId];
+    if (!productInfo) {
+      return { success: false as const, message: `Produk tidak ditemukan: ${item.productId}` };
+    }
+    if (productInfo.sellPrice !== item.price) {
+      return { success: false as const, message: `Harga produk telah berubah. Harap refresh halaman.` };
+    }
+  }
 
   const checkoutValidation = validateBeforeCheckout({
     buyerMode: parsed.data.customerId?.trim() ? 'REGISTERED' : 'MANUAL',
@@ -235,7 +248,9 @@ export async function validatePosSale(input: z.infer<typeof createPosSaleSchema>
     paymentAmount: parsed.data.paymentAmount,
     subtotal,
     taxRate: parsed.data.taxRate ?? 0,
-    stockByProductId,
+    stockByProductId: Object.fromEntries(
+      Object.entries(stockByProductId).map(([id, info]) => [id, info.stock]),
+    ),
   });
 
   if (!checkoutValidation.ok) {
@@ -329,7 +344,7 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
       const createdInvoice = await tx.invoice.create({
         data: {
           customerId: resolvedCustomerId,
-          walkInName: hasManualBuyer ? parsed.walkInName?.trim() : null,
+          walkInName: hasManualBuyer ? sanitizeText(parsed.walkInName ?? '', 200) : null,
           createdById: actorId ?? null,
           invoiceNumber,
           status: paymentStatus,
@@ -341,7 +356,7 @@ export async function createPosSale(input: z.infer<typeof createPosSaleSchema>) 
           items: {
             create: validatedItems.map((item) => ({
               type: 'PRODUK',
-              description: item.description,
+          description: sanitizeText(item.description ?? '', 200),
               qty: item.qty,
               price: item.price,
               subtotal: item.subtotal,

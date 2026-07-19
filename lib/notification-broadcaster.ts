@@ -6,6 +6,8 @@
  * For multi-instance/serverless deployments, consider using Redis Pub/Sub or a message queue.
  */
 
+import { logger } from './logger';
+
 type NotificationListener = {
   userId: string;
   send: (data: unknown) => void;
@@ -56,8 +58,7 @@ export function broadcastNotification(
     try {
       listener.send(data);
     } catch (error) {
-      console.error(`Failed to broadcast notification to user ${userId}:`, error);
-      // Remove dead listener
+      logger.error('Failed to broadcast notification', { userId, error: error instanceof Error ? error.message : String(error) });
       listeners.delete(listener);
     }
   });
@@ -79,7 +80,7 @@ export function broadcastUnreadCount(userId: string, count: number) {
     try {
       listener.send(data);
     } catch (error) {
-      console.error(`Failed to broadcast unread count to user ${userId}:`, error);
+      logger.error('Failed to broadcast unread count', { userId, error: error instanceof Error ? error.message : String(error) });
       listeners.delete(listener);
     }
   });

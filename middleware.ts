@@ -3,6 +3,18 @@ import { getToken } from 'next-auth/jwt';
 import { canPerform } from '@/lib/permission-matrix';
 import { getAuthSecret } from '@/lib/auth-env';
 
+// D3: Structured request logging for production observability.
+function logRequest(request: NextRequest, status: number, role: string | null, durationMs: number) {
+  const path = request.nextUrl.pathname;
+  const method = request.method;
+  const msg = `${method} ${path} ${status} ${durationMs}ms role=${role ?? 'unknown'}`;
+  if (process.env.NODE_ENV === 'production') {
+    console.log(JSON.stringify({ level: 'info', message: msg, timestamp: new Date().toISOString() }));
+  } else {
+    console.log(`[${new Date().toISOString()}] ${msg}`);
+  }
+}
+
 const loginRateLimitWindowMs = 15 * 60 * 1000;
 const loginRateLimitMaxAttempts = 5;
 const loginAttempts = new Map<string, { count: number; firstAttempt: number }>();
@@ -63,10 +75,15 @@ function incrementRateLimit(key: string) {
 }
 
 export async function middleware(request: NextRequest) {
-  if (request.nextUrl.pathname === '/api/auth/callback/credentials' && request.method === 'POST') {
+  // D3: Timing starts here for request logging.
+  const start = Date.now();
+  const { pathname } = request.nextUrl;
+
+  if (pathname === '/api/auth/callback/credentials' && request.method === 'POST') {
     const ip = getClientIp(request);
     const key = `credentials:${ip}`;
     if (isRateLimited(key)) {
+      logRequest(request, 429, null, Date.now() - start);
       return new NextResponse('Too many requests', {
         status: 429,
         headers: {
@@ -79,7 +96,17 @@ export async function middleware(request: NextRequest) {
   }
 
   const response = await proxy(request);
-  return withSecurityHeaders(response);
+  const finalResponse = withSecurityHeaders(response);
+
+  const token = await getToken({
+    req: request,
+    secret: getAuthSecret(),
+    secureCookie: process.env.NODE_ENV === 'production',
+  });
+  const role = typeof token?.role === 'string' ? token.role : null;
+  logRequest(request, finalResponse.status, role, Date.now() - start);
+
+  return finalResponse;
 }
 
 const SECURITY_HEADERS: Record<string, string> = {

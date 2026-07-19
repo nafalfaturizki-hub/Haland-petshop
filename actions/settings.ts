@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 
+import { logger } from '@/lib/logger';
 import { getActorRole } from '@/lib/utils';
 
 const settingsSchema = z.object({
@@ -260,7 +261,7 @@ export async function updateSettings(input: z.infer<typeof settingsSchema>) {
     revalidatePath('/settings');
     return { success: true, message: 'Pengaturan berhasil disimpan.', data: { settings } };
   } catch (error) {
-    console.error('Failed to update settings', error);
+    logger.error('Failed to update settings', { error: error instanceof Error ? error.message : String(error) });
     return { success: false, message: 'Gagal menyimpan pengaturan.', data: null };
   }
 }
@@ -317,7 +318,7 @@ export async function createBackup() {
       data: { fileName, content },
     };
   } catch (error) {
-    console.error('Failed to create backup', error);
+    logger.error('Failed to create backup', { error: error instanceof Error ? error.message : String(error) });
     return { success: false, message: 'Gagal membuat backup.', data: null };
   }
 }
@@ -459,7 +460,7 @@ export async function restoreBackup(input: z.infer<typeof restoreBackupSchema>) 
       data: { restored: true, auditLogsRestored: result.auditLogsRestored } 
     };
   } catch (error) {
-    console.error('Failed to restore backup', error);
+    logger.error('Failed to restore backup', { error: error instanceof Error ? error.message : String(error) });
     
     // Specific error messages for different failure scenarios
     if (error instanceof Error) {

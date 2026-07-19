@@ -119,7 +119,7 @@ export async function listAppointmentLookups() {
   return { success: true, pets, customers, doctors };
 }
 
-export async function listAppointments() {
+export async function listAppointments(page = 1, pageSize = 50) {
   const session = await auth();
   const actorRole = getActorRole(session);
   const actorId = getActorId(session);
@@ -128,33 +128,34 @@ export async function listAppointments() {
     return { success: false, message: 'Tidak terautentikasi.' };
   }
 
+  const skip = (page - 1) * pageSize;
+
   if (actorRole === 'CUSTOMER') {
     const customer = await getCustomerForSession(actorId);
     if (!customer) {
-      return { success: true, appointments: [] };
+      return { success: true, appointments: [], total: 0, page, pageSize };
     }
 
-    const appointments = await prisma.appointment.findMany({
-      where: { customerId: customer.id },
-      orderBy: { date: 'asc' },
-      include: { pet: { select: { id: true, name: true, species: true } }, doctor: { select: { id: true, name: true } }, customer: { select: { id: true, name: true } } },
-    });
+    const where = { customerId: customer.id };
+    const include = { pet: { select: { id: true, name: true, species: true } }, doctor: { select: { id: true, name: true } }, customer: { select: { id: true, name: true } } };
 
-    return { success: true, appointments };
+    const [appointments, total] = await Promise.all([
+      prisma.appointment.findMany({ where, orderBy: { date: 'asc' }, skip, take: pageSize, include }),
+      prisma.appointment.count({ where }),
+    ]);
+
+    return { success: true, appointments, total, page, pageSize };
   }
 
-  const queryOptions: Prisma.AppointmentFindManyArgs = {
-    orderBy: { date: 'asc' },
-    include: { pet: { select: { id: true, name: true, species: true } }, doctor: { select: { id: true, name: true } }, customer: { select: { id: true, name: true } } },
-  };
+  const where = actorRole === 'DOKTER' ? { OR: [{ doctorId: null }, { doctorId: actorId }] } : undefined;
+  const include = { pet: { select: { id: true, name: true, species: true } }, doctor: { select: { id: true, name: true } }, customer: { select: { id: true, name: true } } };
 
-  if (actorRole === 'DOKTER') {
-    queryOptions.where = { OR: [{ doctorId: null }, { doctorId: actorId }] };
-  }
+  const [appointments, total] = await Promise.all([
+    prisma.appointment.findMany({ where, orderBy: { date: 'asc' }, skip, take: pageSize, include }),
+    prisma.appointment.count({ where }),
+  ]);
 
-  const appointments = await prisma.appointment.findMany(queryOptions);
-
-  return { success: true, appointments };
+  return { success: true, appointments, total, page, pageSize };
 }
 
 export async function getAppointment(id: string) {
@@ -185,6 +186,7 @@ export async function getAppointment(id: string) {
   return { success: true, appointment };
 }
 
+/** Create appointment with doctor conflict detection. Uses atomic transaction to prevent double-booking. */
 export async function createAppointment(input: z.infer<typeof appointmentSchema>) {
   const session = await auth();
   const actorRole = getActorRole(session);
@@ -317,6 +319,7 @@ export async function createAppointment(input: z.infer<typeof appointmentSchema>
   }
 }
 
+/** Update appointment with doctor conflict re-check. Validates status transitions. */
 export async function updateAppointment(input: z.infer<typeof updateAppointmentSchema>) {
   const session = await auth();
   const actorRole = getActorRole(session);

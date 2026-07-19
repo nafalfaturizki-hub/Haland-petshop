@@ -6,7 +6,23 @@ validateEnvironment();
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-export const prisma = globalForPrisma.prisma ?? new PrismaClient();
+export const prisma = globalForPrisma.prisma ?? new PrismaClient({
+  // D5: Log slow queries in development to identify performance bottlenecks
+  // before they reach production. Warn+error always visible; query events
+  // require the event listener below.
+  log: process.env.NODE_ENV === 'development'
+    ? [{ emit: 'event', level: 'query' }, { emit: 'stdout', level: 'warn' }, { emit: 'stdout', level: 'error' }]
+    : [{ emit: 'stdout', level: 'warn' }, { emit: 'stdout', level: 'error' }],
+});
+
+// D5: Slow query logging — queries taking longer than 100ms logged in dev.
+if (process.env.NODE_ENV === 'development') {
+  prisma.$on('query' as never, (e: { duration: number; query: string; params: string }) => {
+    if (e.duration > 100) {
+      console.warn(`[DB] Slow query (${e.duration}ms): ${e.query.slice(0, 200)}`);
+    }
+  });
+}
 
 if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma;
