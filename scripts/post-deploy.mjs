@@ -33,7 +33,7 @@ const childEnv = {
 
 console.log('[Post-Deploy] Running database migrations...');
 
-const migrationResult = spawnSync('prisma', ['migrate', 'deploy', '--skip-generate'], {
+const migrationResult = spawnSync('prisma', ['migrate', 'deploy'], {
   cwd: process.cwd(),
   stdio: 'inherit',
   env: childEnv,
