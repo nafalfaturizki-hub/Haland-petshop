@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import { canPerform } from '@/lib/permission-matrix';
 import { getAuthSecret } from '@/lib/auth-env';
+import { RATE_LIMIT } from '@/lib/constants';
 
 // D3: Structured request logging for production observability.
 function logRequest(request: NextRequest, status: number, role: string | null, durationMs: number) {
@@ -15,8 +16,8 @@ function logRequest(request: NextRequest, status: number, role: string | null, d
   }
 }
 
-const loginRateLimitWindowMs = 15 * 60 * 1000;
-const loginRateLimitMaxAttempts = 5;
+const loginRateLimitWindowMs = RATE_LIMIT.WINDOW_MS;
+const loginRateLimitMaxAttempts = RATE_LIMIT.MAX_ATTEMPTS;
 const loginAttempts = new Map<string, { count: number; firstAttempt: number }>();
 
 function getClientIp(request: NextRequest) {

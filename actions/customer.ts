@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { createUser } from '@/lib/user-management';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { canPerformAction } from '@/lib/permissions';
+import { ensureStaffAccess } from '@/lib/permissions';
 import { getActorRole } from '@/lib/utils';
 import { sanitizeText } from '@/lib/sanitize';
 
@@ -26,17 +26,6 @@ const deleteCustomerSchema = z.object({
   id: z.string().min(1),
 });
 
-function ensureStaffAccess(actorRole: string | undefined, action: 'create' | 'read' | 'update' | 'delete') {
-  if (!actorRole) {
-    return { allowed: false, message: 'Tidak terautentikasi.' };
-  }
-
-  if (canPerformAction(actorRole, 'customers', action)) {
-    return { allowed: true };
-  }
-
-  return { allowed: false, message: 'Anda tidak berwenang mengelola data pelanggan.' };
-}
 async function buildUsername(name: string) {
   const seed = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'customer';
   let username = seed;
@@ -125,7 +114,7 @@ export async function createCustomer(input: z.infer<typeof customerSchema>) {
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  const permission = ensureStaffAccess(actorRole, 'create');
+  const permission = ensureStaffAccess(actorRole, 'create', 'customers');
   if (!permission.allowed) {
     return { success: false, message: permission.message };
   }
@@ -181,7 +170,7 @@ export async function updateCustomer(input: z.infer<typeof updateCustomerSchema>
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  const permission = ensureStaffAccess(actorRole, 'update');
+  const permission = ensureStaffAccess(actorRole, 'update', 'customers');
   if (!permission.allowed) {
     return { success: false, message: permission.message };
   }
@@ -222,7 +211,7 @@ export async function deleteCustomer(input: z.infer<typeof deleteCustomerSchema>
     return { success: false, message: 'Data tidak valid.' };
   }
 
-  const permission = ensureStaffAccess(actorRole, 'delete');
+  const permission = ensureStaffAccess(actorRole, 'delete', 'customers');
   if (!permission.allowed) {
     return { success: false, message: permission.message };
   }

@@ -23,7 +23,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(0);
 }
 
-const shouldSeed = (process.env.SEED_ON_DEPLOY ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true')).toLowerCase() !== 'false';
+const shouldSeed = (process.env.SEED_ON_DEPLOY ?? 'true').toLowerCase() !== 'false';
 
 const env = loadPrismaEnvironment();
 const childEnv = {
@@ -49,30 +49,19 @@ if (migrationResult.status !== 0) {
 console.log('[Post-Deploy] Migrations completed successfully');
 
 if (shouldSeed) {
-  console.log('[Post-Deploy] Checking whether the database already has seed data...');
-  const userCountResult = spawnSync('prisma', ['db', 'execute', '--stdin', '--', 'SELECT COUNT(*)::int AS count FROM "User";'], {
+  console.log('[Post-Deploy] Running database seed (safe to run on existing data)...');
+  const seedResult = spawnSync('prisma', ['db', 'seed'], {
     cwd: process.cwd(),
-    stdio: 'pipe',
+    stdio: 'inherit',
     env: childEnv,
     shell: false,
-    encoding: 'utf8',
+    timeout: 30000,
   });
 
-  const userCount = Number.parseInt(String(userCountResult.stdout || '').match(/\b(\d+)\b/)?.[1] ?? '0', 10);
-  if (userCount > 0) {
-    console.log('[Post-Deploy] Database already contains users; skipping seed.');
+  if (seedResult.status !== 0) {
+    console.warn('[Post-Deploy] Seed completed with warnings or failed; deployment continues.');
   } else {
-    console.log('[Post-Deploy] Running database seed...');
-    const seedResult = spawnSync('prisma', ['db', 'seed'], {
-      cwd: process.cwd(),
-      stdio: 'inherit',
-      env: childEnv,
-      shell: false,
-    });
-
-    if (seedResult.status !== 0) {
-      console.warn('[Post-Deploy] Seed completed with warnings or failed; deployment continues.');
-    }
+    console.log('[Post-Deploy] Seed completed successfully.');
   }
 }
 

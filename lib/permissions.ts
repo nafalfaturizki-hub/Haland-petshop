@@ -278,6 +278,18 @@ export function canManageTargetRole(role: string | undefined, targetRole: Role) 
   return { allowed: false, message: 'Anda tidak berwenang mengelola akun tersebut.' };
 }
 
+export function ensureStaffAccess(actorRole: string | undefined, action: 'create' | 'read' | 'update' | 'delete', module?: string, denyMessage?: string) {
+  if (!actorRole) {
+    return { allowed: false, message: 'Tidak terautentikasi.' };
+  }
+
+  if (canPerformAction(actorRole, module ?? 'dashboard', action)) {
+    return { allowed: true };
+  }
+
+  return { allowed: false, message: denyMessage ?? 'Anda tidak berwenang.' };
+}
+
 export async function requireModuleAccess(role: Role | undefined, module: ModuleName) {
   if (!role) {
     try {

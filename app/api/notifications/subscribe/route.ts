@@ -1,6 +1,7 @@
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getActorId } from '@/lib/utils';
+import { SSE } from '@/lib/constants';
 import { registerNotificationListener } from '@/lib/notification-broadcaster';
 
 /**
@@ -72,7 +73,7 @@ export async function GET(request: Request) {
           unsubscribe();
           ctrl.close();
         }
-      }, 30000); // Heartbeat every 30 seconds
+      }, SSE.HEARTBEAT_INTERVAL_MS);
 
       // Clean up on client disconnect
       request.signal.addEventListener('abort', () => {
