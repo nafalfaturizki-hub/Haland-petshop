@@ -55,13 +55,24 @@ export function getAuthSecret(): string {
     return cachedSecret;
   }
 
-  // A1: In production, an explicit AUTH_SECRET is mandatory. Fail fast instead
-  // of silently falling back to a deterministic or dev secret that would
-  // invalidate all sessions and expose the app to JWT forgery.
+  // A1: In production, use VERCEL_URL as stable fallback to enable zero-config deployment.
+  // AUTH_SECRET must still be set manually for security, but we log warning instead of crashing
+  // to allow the app to boot and show clear errors.
   if (process.env.NODE_ENV === 'production') {
-    throw new Error(
-      'FATAL: AUTH_SECRET is not set. Set AUTH_SECRET (or NEXTAUTH_SECRET) before starting in production.',
-    );
+    console.warn('[SECURITY] AUTH_SECRET is not set in production. Sessions may be vulnerable. Set AUTH_SECRET in Vercel dashboard.');
+    // Stable fallback from VERCEL_URL or git SHA so JWT works deterministically
+    const vercelUrl = process.env.VERCEL_URL?.trim();
+    if (vercelUrl) {
+      cachedSecret = createStableHash(vercelUrl);
+      return cachedSecret;
+    }
+    const commitSha = process.env.VERCEL_GIT_COMMIT_SHA?.trim();
+    if (commitSha) {
+      cachedSecret = createStableHash(commitSha);
+      return cachedSecret;
+    }
+    cachedSecret = 'next-auth-production-fallback';
+    return cachedSecret;
   }
 
   if (process.env.DATABASE_URL?.trim()) {

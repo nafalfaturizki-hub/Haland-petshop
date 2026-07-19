@@ -173,6 +173,8 @@ model PetWeightLog {
   date   DateTime @default(now())
 
   pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId])
 }
 
 model PetVaccineRecord {
@@ -183,6 +185,8 @@ model PetVaccineRecord {
   nextDueDate DateTime?
 
   pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId])
 }
 
 model PetDiseaseRecord {
@@ -193,6 +197,8 @@ model PetDiseaseRecord {
   date        DateTime @default(now())
 
   pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId])
 }
 
 model PetAllergy {
@@ -202,6 +208,8 @@ model PetAllergy {
   note     String?
 
   pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([petId])
 }
 
 model Appointment {
@@ -483,6 +491,8 @@ model Notification {
   date    DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
 }
 
 model AuditLog {
