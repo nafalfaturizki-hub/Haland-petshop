@@ -30,6 +30,12 @@ export function normalizeOptionalText(value: string | undefined | null) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+export function normalizeOptional(value: string | undefined | null) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : '';
+}
+
 export function normalizeOptionalNumber(value: string | undefined | null) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();

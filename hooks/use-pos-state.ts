@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { createPosSaleWithRetry, listPosProducts, listProductCategories, validatePosSale } from '@/actions/pos';
 import { getInvoiceLookups } from '@/actions/invoice';
 import { calculatePosTotals, getPaymentSummary, roundCurrency } from '@/lib/pos';
+import { formatCurrency } from '@/lib/utils';
 import { validateBeforeCheckout } from '@/lib/pos-validation';
 import { usePolling } from '@/hooks/use-polling';
 import { useRefetchOnFocus } from '@/hooks/use-refetch-on-focus';
@@ -364,6 +365,4 @@ export function usePosState() {
   };
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value);
-}
+// formatCurrency imported from '@/lib/utils'

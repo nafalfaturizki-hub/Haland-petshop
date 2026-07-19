@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
+import type { ModuleName } from '@/lib/permissions';
 import { canPerform } from '@/lib/permission-matrix';
 import { getAuthSecret } from '@/lib/auth-env';
 import { RATE_LIMIT } from '@/lib/constants';
@@ -128,7 +129,7 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
   return response;
 }
 
-const ROUTE_TO_MODULE: Record<string, string> = {
+const ROUTE_TO_MODULE: Record<string, ModuleName> = {
   '/dashboard': 'dashboard',
   '/customers': 'customers',
   '/pets': 'pets',
@@ -215,7 +216,7 @@ export async function proxy(request: NextRequest) {
 
     const matchedModule = Object.entries(ROUTE_TO_MODULE).find(([prefix]) => pathname === prefix || pathname.startsWith(`${prefix}/`))?.[1];
 
-    if (!matchedModule || !canPerform(role, matchedModule as any)) {
+    if (!matchedModule || !canPerform(role, matchedModule)) {
       const unauthorizedUrl = new URL('/dashboard', request.url);
       unauthorizedUrl.searchParams.set('unauthorized', '1');
       unauthorizedUrl.searchParams.set('route', pathname);

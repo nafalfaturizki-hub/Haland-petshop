@@ -5,7 +5,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { isDoctor } from '@/lib/permissions';
 
-import { getActorRole, getActorId } from '@/lib/utils';
+import { getActorRole, getActorId, normalizeOptional } from '@/lib/utils';
 const REPORT_TYPES = [
   'revenue',
   'appointments',
@@ -42,10 +42,32 @@ type ReportFilters = z.infer<typeof reportFilterSchema>;
 
 const STAFF_ROLES = ['OWNER', 'ADMIN_KLINIK', 'DOKTER'];
 
-function normalizeOptional(value: string | undefined | null) {
-  if (typeof value !== 'string') return '';
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : '';
+// Type-safe helpers for Prisma enum fields.
+// Input is validated by Zod upstream; these guards exist so TypeScript
+// can narrow string → the specific union Prisma expects.
+const PAYMENT_STATUSES = ['UNPAID', 'PARTIAL_PAYMENT', 'PAID', 'CANCELLED'] as const;
+const APPOINTMENT_STATUSES = ['WAITING', 'IN_PROGRESS', 'DONE', 'CANCELLED'] as const;
+const BOOKING_STATUSES = ['BOOKED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED'] as const;
+const PRODUCT_STATUSES = ['ACTIVE', 'ARCHIVED'] as const;
+type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+type AppointmentStatus = (typeof APPOINTMENT_STATUSES)[number];
+type BookingStatus = (typeof BOOKING_STATUSES)[number];
+type ProductStatus = (typeof PRODUCT_STATUSES)[number];
+
+function safePaymentStatus(value: string | undefined): PaymentStatus | undefined {
+  return PAYMENT_STATUSES.includes(value as PaymentStatus) ? (value as PaymentStatus) : undefined;
+}
+
+function safeAppointmentStatus(value: string | undefined): AppointmentStatus | undefined {
+  return APPOINTMENT_STATUSES.includes(value as AppointmentStatus) ? (value as AppointmentStatus) : undefined;
+}
+
+function safeBookingStatus(value: string | undefined): BookingStatus | undefined {
+  return BOOKING_STATUSES.includes(value as BookingStatus) ? (value as BookingStatus) : undefined;
+}
+
+function safeProductStatus(value: string | undefined): ProductStatus | undefined {
+  return PRODUCT_STATUSES.includes(value as ProductStatus) ? (value as ProductStatus) : undefined;
 }
 
 function toStartOfDay(value: string | Date) {
@@ -271,7 +293,7 @@ export async function getReportData(input: ReportFilters) {
       case 'revenue': {
         const invoiceWhere: Record<string, unknown> = {
           ...(dateWhereInvoices ?? {}),
-          ...(filters.paymentStatus ? { status: filters.paymentStatus as never } : {}),
+          ...(filters.paymentStatus ? { status: safePaymentStatus(filters.paymentStatus) } : {}),
           ...(filters.customerId ? { customerId: filters.customerId } : {}),
           ...(filters.doctorId ? { doctorId: filters.doctorId } : {}),
         };
@@ -490,7 +512,7 @@ export async function getReportData(input: ReportFilters) {
         const products = await prisma.product.findMany({
           where: {
             ...(filters.category ? { categoryId: filters.category } : {}),
-            ...(filters.status ? { status: filters.status as never } : {}),
+            ...(filters.status ? { status: safeProductStatus(filters.status) } : {}),
           },
           include: { category: { select: { name: true } }, stockMovements: { where: { date: { ...(dateWhere ?? {}) } } } },
           orderBy: { name: 'asc' },
@@ -535,7 +557,7 @@ export async function getReportData(input: ReportFilters) {
           where: {
             ...(dateWhereInvoices ?? {}),
             ...(filters.customerId ? { customerId: filters.customerId } : {}),
-            status: 'PAID' as never,
+            status: 'PAID' as const,
           },
           include: { items: true },
           orderBy: { date: 'desc' },
@@ -580,7 +602,7 @@ export async function getReportData(input: ReportFilters) {
           where: {
             ...(dateWhereInvoices ?? {}),
             ...(filters.customerId ? { customerId: filters.customerId } : {}),
-            status: 'PAID' as never,
+            status: 'PAID' as const,
           },
           include: { customer: { select: { name: true } } },
           orderBy: { date: 'desc' },
@@ -620,7 +642,7 @@ export async function getReportData(input: ReportFilters) {
           where: {
             ...(dateWhereInvoices ?? {}),
             ...(filters.customerId ? { customerId: filters.customerId } : {}),
-            ...(filters.paymentStatus ? { status: filters.paymentStatus as never } : {}),
+            ...(safePaymentStatus(filters.paymentStatus) ? { status: safePaymentStatus(filters.paymentStatus) } : {}),
           },
           include: { customer: { select: { name: true } } },
           orderBy: { date: 'desc' },
@@ -662,7 +684,7 @@ export async function getReportData(input: ReportFilters) {
           where: {
             ...(dateWhereHotel ?? {}),
             ...(filters.roomId ? { roomId: filters.roomId } : {}),
-            ...(filters.status ? { status: filters.status as never } : {}),
+            ...(safeBookingStatus(filters.status) ? { status: safeBookingStatus(filters.status) } : {}),
             ...(filters.petId ? { petId: filters.petId } : {}),
           },
           include: { bookingPets: { include: { pet: { select: { name: true } } } }, room: { select: { name: true } } },

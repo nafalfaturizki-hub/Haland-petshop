@@ -278,7 +278,7 @@ export function canManageTargetRole(role: string | undefined, targetRole: Role) 
   return { allowed: false, message: 'Anda tidak berwenang mengelola akun tersebut.' };
 }
 
-export function ensureStaffAccess(actorRole: string | undefined, action: 'create' | 'read' | 'update' | 'delete', module?: string, denyMessage?: string) {
+export function ensureStaffAccess(actorRole: string | undefined, action: 'create' | 'read' | 'update' | 'delete', module?: ModuleName, denyMessage?: string) {
   if (!actorRole) {
     return { allowed: false, message: 'Tidak terautentikasi.' };
   }

@@ -23,7 +23,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(0);
 }
 
-const shouldSeed = (process.env.SEED_ON_DEPLOY ?? 'true').toLowerCase() !== 'false';
+const shouldSeed = (process.env.SEED_ON_DEPLOY ?? 'false').toLowerCase() === 'true';
 
 const env = loadPrismaEnvironment();
 const childEnv = {
@@ -43,7 +43,7 @@ const migrationResult = spawnSync('prisma', ['migrate', 'deploy', '--skip-genera
 if (migrationResult.status !== 0) {
   console.error('[Post-Deploy] Migration failed with status:', migrationResult.status);
   console.error('[Post-Deploy] This may cause runtime errors if the schema is out of sync');
-  process.exit(0);
+  process.exit(migrationResult.status ?? 1);
 }
 
 console.log('[Post-Deploy] Migrations completed successfully');

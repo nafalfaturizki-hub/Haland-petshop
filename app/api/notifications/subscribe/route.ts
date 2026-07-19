@@ -1,3 +1,6 @@
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { getActorId } from '@/lib/utils';
@@ -71,7 +74,7 @@ export async function GET(request: Request) {
         } catch {
           clearInterval(heartbeatInterval);
           unsubscribe();
-          ctrl.close();
+          try { ctrl.close(); } catch { /* stream already closed */ }
         }
       }, SSE.HEARTBEAT_INTERVAL_MS);
 
@@ -79,7 +82,7 @@ export async function GET(request: Request) {
       request.signal.addEventListener('abort', () => {
         clearInterval(heartbeatInterval);
         unsubscribe();
-        ctrl.close();
+        try { ctrl.close(); } catch { /* stream already closed */ }
       });
     },
   });

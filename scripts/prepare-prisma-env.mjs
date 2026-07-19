@@ -60,14 +60,17 @@ function writeRuntimeEnvFile(env) {
   const lines = [];
   const databaseUrl = env.DATABASE_URL?.trim();
   const nextAuthSecret = (process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET ?? '').trim();
+  // During build, if no secret is provided, generate a temporary one
+  // In production (Vercel), AUTH_SECRET is always set via environment variables
+  const buildTimeSecret = nextAuthSecret || (process.env.NODE_ENV === 'production' ? '' : 'build-time-temporary-secret-do-not-use-in-production');
   const nextAuthUrl = (process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')).trim();
 
   if (databaseUrl) {
     lines.push(`DATABASE_URL=${databaseUrl}`);
   }
-  if (nextAuthSecret) {
-    lines.push(`AUTH_SECRET=${nextAuthSecret}`);
-    lines.push(`NEXTAUTH_SECRET=${nextAuthSecret}`);
+  if (buildTimeSecret) {
+    lines.push(`AUTH_SECRET=${buildTimeSecret}`);
+    lines.push(`NEXTAUTH_SECRET=${buildTimeSecret}`);
   }
   if (nextAuthUrl) {
     lines.push(`AUTH_URL=${nextAuthUrl}`);

@@ -43,9 +43,22 @@ export function getAuthSecret(): string {
   return cachedSecret;
 }
 
+function isPlaceholderUrl(url: string): boolean {
+  // Detect common placeholder patterns that cause Invalid URL errors at runtime
+  const trimmed = url.trim().toLowerCase();
+  return (
+    trimmed.includes('placeholder') ||
+    trimmed.includes('your-') ||
+    trimmed.includes('yourdomain') ||
+    trimmed.includes('where nextauth') ||
+    trimmed === '' ||
+    trimmed === 'http://localhost:3000'
+  );
+}
+
 export function getAuthBaseUrl(requestUrl?: string) {
   const explicitUrl = process.env.AUTH_URL ?? process.env.NEXTAUTH_URL;
-  if (explicitUrl?.trim()) {
+  if (explicitUrl?.trim() && !isPlaceholderUrl(explicitUrl)) {
     return explicitUrl.trim();
   }
 

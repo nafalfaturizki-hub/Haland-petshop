@@ -151,10 +151,12 @@ export const authOptions: NextAuthOptions = {
   secret: nextAuthSecret,
   session: {
     strategy: 'jwt',
-    maxAge: 60 * 60 * 24 * 30,
+    // Sesi klinik menyimpan data sensitif; batasi masa berlaku token ke 7 hari.
+    // Revokasi eksplisit ditangani via flag `revoked` yang dicek pada tiap request (getFreshUser).
+    maxAge: 60 * 60 * 24 * 7,
   },
   jwt: {
-    maxAge: 60 * 60 * 24 * 30,
+    maxAge: 60 * 60 * 24 * 7,
   },
   providers: [
     Credentials({

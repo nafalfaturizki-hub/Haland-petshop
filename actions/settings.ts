@@ -3,10 +3,10 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { prisma, createAuditLog } from '@/lib/db';
 
 import { logger } from '@/lib/logger';
-import { getActorRole } from '@/lib/utils';
+import { getActorRole, normalizeOptionalText } from '@/lib/utils';
 
 const settingsSchema = z.object({
   clinicName: z.string().trim().max(100).optional().or(z.literal('')),
@@ -70,13 +70,7 @@ const restoreBackupSchema = z.object({
 function isOwner(role?: string) {
   return role === 'OWNER';
 }
-function normalizeString(value: string | null | undefined) {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
+const normalizeString = normalizeOptionalText;
 
 function normalizeBoolean(value: boolean | undefined) {
   return value ?? false;
@@ -93,17 +87,8 @@ function normalizeNumber(value: number | string | undefined | null) {
   return null;
 }
 
-async function createAuditEntry(userId: string, action: string, entity: string, description: string, entityId?: string | null) {
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action,
-      entity,
-      entityId,
-      description,
-    },
-  });
-}
+// Replaced by createAuditLog (imported from lib/db.ts)
+// Call signature: createAuditLog(userId, action, entity, entityId, description)
 
 export async function getSettingsData() {
   const session = await auth();
@@ -310,7 +295,7 @@ export async function createBackup() {
 
     const fileName = `haland-backup-${timestamp.slice(0, 10)}-${Date.now()}.json`;
 
-    await createAuditEntry(userId, 'BACKUP_CREATE', 'Settings', `Membuat backup konfigurasi sistem (${(content.length / 1024).toFixed(2)}KB).`, null);
+    await createAuditLog(userId, 'BACKUP_CREATE', 'Settings', null, `Membuat backup konfigurasi sistem (${(content.length / 1024).toFixed(2)}KB).`);
 
     return {
       success: true,

@@ -1,11 +1,12 @@
-import { cache } from 'react';
+import { unstable_cache } from 'next/cache';
 import { prisma } from '@/lib/db';
 
-export const getSettings = cache(async function getSettings() {
-  // Cached settings provider used during server-side renders and utility calls.
-  // React cache ensures repeated settings lookups in the same execution context
-  // reuse the result instead of issuing duplicate database reads.
-  return prisma.settings.findFirst({
-    where: { id: 'default-settings' },
-  });
-});
+export const getSettings = unstable_cache(
+  async function getSettings() {
+    return prisma.settings.findFirst({
+      where: { id: 'default-settings' },
+    });
+  },
+  ['settings'],
+  { revalidate: 60 }
+);
